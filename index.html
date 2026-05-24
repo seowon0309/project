@@ -99,6 +99,7 @@
   let bgFrame   = null;
   let frameCount = 0;
   let trackedBlobs = []; 
+  let nextBlobId = 0; // 각 객체에 고유 번호를 부여하기 위한 변수
 
   const video   = document.getElementById("cam");
   const overlay = document.getElementById("overlay");
@@ -115,7 +116,7 @@
       overlay.height = video.videoHeight;
       buf.width      = video.videoWidth;
       buf.height     = video.videoHeight;
-      document.getElementById("status").innerText = "✅ 감지 중...";
+      document.getElementById("status").innerText = "✅ 정밀 감지 중...";
       requestAnimationFrame(processFrame);
     };
   }).catch(err => {
@@ -131,6 +132,7 @@
     const curr = bctx.getImageData(0, 0, W, H);
     octx.clearRect(0, 0, W, H);
 
+    // 가이드 라인 시각화
     octx.strokeStyle = "rgba(56, 189, 248, 0.8)";
     octx.lineWidth   = 3;
     octx.setLineDash([10, 5]);
@@ -142,7 +144,8 @@
     if (prevFrame) {
       frameCount++;
 
-      if (!bgFrame || frameCount % 45 === 0) {
+      // 유연한 배경 적응 (빛 변화 대응)
+      if (!bgFrame || frameCount % 60 === 0) {
         bgFrame = prevFrame;
       }
      
@@ -156,7 +159,8 @@
         const g = Math.abs(cData[i*4+1] - pData[i*4+1]);
         const b = Math.abs(cData[i*4+2] - pData[i*4+2]);
         
-        if ((r + g + b) / 3 > 25) {
+        // 민감도 필터링 스레시홀드 상향 (어설픈 움직임 무시)
+        if ((r + g + b) / 3 > 35) {
           diff[i] = 255;
           totalDiff++;
         } else {
@@ -169,27 +173,52 @@
         bgFrame = curr;
       }
 
-      const blobs = findBlobsOptimized(diff, W, H);
+      // 덩어리 추출
+      const currentBlobs = findBlobsOptimized(diff, W, H);
+      const nextTrackedBlobs = [];
 
-      blobs.forEach(blob => {
+      currentBlobs.forEach(blob => {
+        // 추적 박스 그리기
         octx.strokeStyle = "#facc15";
         octx.lineWidth   = 2;
         octx.setLineDash([]);
         octx.strokeRect(blob.x, blob.y, blob.w, blob.h);
 
-        const prev = trackedBlobs.find(p =>
-          Math.abs(p.cx - blob.cx) < 120 && Math.abs(p.cy - blob.cy) < 120
-        );
+        // [핵심] 이전 프레임에서 연속되는 덩어리 ID 찾기
+        let bestMatch = null;
+        let minDistance = 100; // 픽셀 거리 한계값
 
-        if (prev) {
-          if (prev.cx < lineX && blob.cx >= lineX) {
+        trackedBlobs.forEach(p => {
+          const dist = Math.hypot(p.cx - blob.cx, p.cy - blob.cy);
+          if (dist < minDistance) {
+            minDistance = dist;
+            bestMatch = p;
+          }
+        });
+
+        if (bestMatch) {
+          // 기존에 추적하던 사물이면 고유 ID와 카운트 완료 여부 상태를 이어받음
+          blob.id = bestMatch.id;
+          blob.isCounted = bestMatch.isCounted;
+
+          // [핵심] 왼쪽(lineX 이전)에서 오른쪽(lineX 이후)으로 통과하는 순간 감지
+          // 이미 카운트된 사물이 아니라면 카운트 수행
+          if (!blob.isCounted && bestMatch.cx < lineX && blob.cx >= lineX) {
             waitingCount++;
+            blob.isCounted = true; // 중복 카운팅 잠금!
             flashLine("#34d399");
-          } 
+          }
+        } else {
+          // 아예 처음 발견된 사물이면 새 ID 부여 및 카운트 미완료 상태 지정
+          blob.id = nextBlobId++;
+          blob.isCounted = false;
         }
+
+        nextTrackedBlobs.push(blob);
       });
 
-      trackedBlobs = blobs;
+      // 현재 프레임 상태를 다음 프레임 비교용으로 저장
+      trackedBlobs = nextTrackedBlobs;
       updateUI();
     }
 
@@ -197,10 +226,11 @@
     requestAnimationFrame(processFrame);
   }
 
+  // 노이즈를 완벽하게 배제하는 정밀 덩어리 그룹화 함수
   function findBlobsOptimized(diff, W, H) {
-    const minSize = 25;
+    const minSize = 30; 
     const blobs = [];
-    const step = 6; 
+    const step = 8; // 연산 속도를 확보하고 자잘한 점 노이즈를 무시하기 위한 스텝 노드
     
     for (let y = 0; y < H; y += step) {
       for (let x = 0; x < W; x += step) {
@@ -209,13 +239,18 @@
           for (let b of blobs) {
             if (x >= b.x - minSize && x <= b.x + b.w + minSize &&
                 y >= b.y - minSize && y <= b.y + b.h + minSize) {
+              
               let x1 = Math.min(b.x, x);
               let x2 = Math.max(b.x + b.w, x);
               let y1 = Math.min(b.y, y);
               let y2 = Math.max(b.y + b.h, y);
-              b.x = x1; b.y = y1; b.w = x2 - x1; b.h = y2 - y1;
-              b.cx = x1 + b.w / 2; b.cy = y1 + b.h / 2;
-              found = true; break;
+              
+              b.x = x1; b.y = y1;
+              b.w = x2 - x1; b.h = y2 - y1;
+              b.cx = x1 + b.w / 2;
+              b.cy = y1 + b.h / 2;
+              found = true;
+              break;
             }
           }
           if (!found) {
@@ -224,19 +259,23 @@
         }
       }
     }
-    return blobs.filter(b => b.w > 40 && b.h > 40);
+    
+    // [중요 필터링] 가로 세로 80px 미만의 자잘한 노이즈는 완전히 탈락시킴 (사람 크기만 인정)
+    return blobs.filter(b => b.w > 80 && b.h > 80);
   }
 
   function flashLine(color) {
-    overlay.style.outline = `5px solid ${color}`;
-    setTimeout(() => overlay.style.outline = "none", 400);
+    overlay.style.outline = `6px solid ${color}`;
+    setTimeout(() => overlay.style.outline = "none", 350);
   }
 
   function updateUI() {
     const trips = Math.ceil(waitingCount / MAX_CAPACITY);
     const wait  = waitingCount === 0 ? 0 : (trips * ELEVATOR_CYCLE).toFixed(1);
+
     document.getElementById("count").innerText    = waitingCount;
     document.getElementById("waitTime").innerText = wait;
+
     const badge = document.getElementById("badge");
     if (waitingCount === 0)     { badge.className = "badge low";    badge.innerText = "여유"; }
     else if (waitingCount <= 5) { badge.className = "badge medium"; badge.innerText = "보통"; }
@@ -245,6 +284,7 @@
 
   function resetCount() {
     waitingCount = 0;
+    trackedBlobs = [];
     updateUI();
   }
 </script>
