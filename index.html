@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>엘리베이터 대기 현황</title>
+  <title>엘리베이터 대기 현황 (정밀 필터 버전)</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -66,7 +66,7 @@
   </style>
 </head>
 <body>
-  <h2>🛗 엘리베이터 대기 현황</h2>
+  <h2>🛗 엘리베이터 대기 현황 (정밀 필터)</h2>
 
   <div class="video-wrap">
     <video id="cam" autoplay playsinline muted></video>
@@ -99,7 +99,8 @@
   let bgFrame   = null;
   let frameCount = 0;
   let trackedBlobs = []; 
-  let nextBlobId = 0; // 각 객체에 고유 번호를 부여하기 위한 변수
+  let nextBlobId = 0;
+  let lastCountTime = 0; // 중복 카운팅 타임아웃용 변수
 
   const video   = document.getElementById("cam");
   const overlay = document.getElementById("overlay");
@@ -116,7 +117,7 @@
       overlay.height = video.videoHeight;
       buf.width      = video.videoWidth;
       buf.height     = video.videoHeight;
-      document.getElementById("status").innerText = "✅ 정밀 감지 중...";
+      document.getElementById("status").innerText = "✅ 초정밀 벡터 분석 중...";
       requestAnimationFrame(processFrame);
     };
   }).catch(err => {
@@ -132,10 +133,9 @@
     const curr = bctx.getImageData(0, 0, W, H);
     octx.clearRect(0, 0, W, H);
 
-    // 가이드 라인 시각화
+    // 중앙 가이드 라인 그리기
     octx.strokeStyle = "rgba(56, 189, 248, 0.8)";
-    octx.lineWidth   = 3;
-    octx.setLineDash([10, 5]);
+    octx.lineWidth   = 4;
     octx.beginPath();
     octx.moveTo(lineX, 0);
     octx.lineTo(lineX, H);
@@ -144,8 +144,8 @@
     if (prevFrame) {
       frameCount++;
 
-      // 유연한 배경 적응 (빛 변화 대응)
-      if (!bgFrame || frameCount % 60 === 0) {
+      // 조명 변화 적응 흐름 제어
+      if (!bgFrame || frameCount % 45 === 0) {
         bgFrame = prevFrame;
       }
      
@@ -153,40 +153,31 @@
       const pData = bgFrame.data;
       const cData = curr.data;
       
-      let totalDiff = 0;
       for (let i = 0; i < W * H; i++) {
         const r = Math.abs(cData[i*4]   - pData[i*4]);
         const g = Math.abs(cData[i*4+1] - pData[i*4+1]);
         const b = Math.abs(cData[i*4+2] - pData[i*4+2]);
         
-        // 민감도 필터링 스레시홀드 상향 (어설픈 움직임 무시)
-        if ((r + g + b) / 3 > 35) {
+        // 민감도 기준을 더 높여 자잘한 노이즈 완전 제거
+        if ((r + g + b) / 3 > 45) {
           diff[i] = 255;
-          totalDiff++;
         } else {
           diff[i] = 0;
         }
       }
-       
-      const diffRatio = totalDiff / (W * H);
-      if (diffRatio > 0.4) {
-        bgFrame = curr;
-      }
 
-      // 덩어리 추출
-      const currentBlobs = findBlobsOptimized(diff, W, H);
+      const currentBlobs = findBlobsStrict(diff, W, H);
       const nextTrackedBlobs = [];
+      const now = Date.now();
 
       currentBlobs.forEach(blob => {
-        // 추적 박스 그리기
+        // 화면에 감지 박스 시각화
         octx.strokeStyle = "#facc15";
-        octx.lineWidth   = 2;
-        octx.setLineDash([]);
+        octx.lineWidth   = 3;
         octx.strokeRect(blob.x, blob.y, blob.w, blob.h);
 
-        // [핵심] 이전 프레임에서 연속되는 덩어리 ID 찾기
         let bestMatch = null;
-        let minDistance = 100; // 픽셀 거리 한계값
+        let minDistance = 80; // 사물 매칭 픽셀 반경 제한
 
         trackedBlobs.forEach(p => {
           const dist = Math.hypot(p.cx - blob.cx, p.cy - blob.cy);
@@ -197,19 +188,26 @@
         });
 
         if (bestMatch) {
-          // 기존에 추적하던 사물이면 고유 ID와 카운트 완료 여부 상태를 이어받음
           blob.id = bestMatch.id;
           blob.isCounted = bestMatch.isCounted;
+          
+          // 실시간 이동 속도 벡터 계산 (현재 x - 이전 x)
+          const moveX = blob.cx - bestMatch.cx;
 
-          // [핵심] 왼쪽(lineX 이전)에서 오른쪽(lineX 이후)으로 통과하는 순간 감지
-          // 이미 카운트된 사물이 아니라면 카운트 수행
-          if (!blob.isCounted && bestMatch.cx < lineX && blob.cx >= lineX) {
-            waitingCount++;
-            blob.isCounted = true; // 중복 카운팅 잠금!
-            flashLine("#34d399");
+          // 정밀 조건 만족 확인:
+          // 1. 기존에 카운트된 적이 없어야 함
+          // 2. 사물의 중심이 선을 왼쪽에서 오른쪽으로 통과해야 함
+          // 3. 순간 이동 벡터 방향이 확실한 오른쪽 방향(moveX > 2)이어야 함
+          // 4. 마지막 카운트 이후 최소 1.5초가 지났어야 함 (연속 노이즈 방지)
+          if (!blob.isCounted && bestMatch.cx < lineX && blob.cx >= lineX && moveX > 2) {
+            if (now - lastCountTime > 1500) {
+              waitingCount++;
+              blob.isCounted = true;
+              lastCountTime = now;
+              flashLine("#34d399");
+            }
           }
         } else {
-          // 아예 처음 발견된 사물이면 새 ID 부여 및 카운트 미완료 상태 지정
           blob.id = nextBlobId++;
           blob.isCounted = false;
         }
@@ -217,7 +215,6 @@
         nextTrackedBlobs.push(blob);
       });
 
-      // 현재 프레임 상태를 다음 프레임 비교용으로 저장
       trackedBlobs = nextTrackedBlobs;
       updateUI();
     }
@@ -226,19 +223,19 @@
     requestAnimationFrame(processFrame);
   }
 
-  // 노이즈를 완벽하게 배제하는 정밀 덩어리 그룹화 함수
-  function findBlobsOptimized(diff, W, H) {
-    const minSize = 30; 
+  // 크기 및 노이즈 검증이 강화된 덩어리 추출 알고리즘
+  function findBlobsStrict(diff, W, H) {
     const blobs = [];
-    const step = 8; // 연산 속도를 확보하고 자잘한 점 노이즈를 무시하기 위한 스텝 노드
+    const step = 10; // 그리드를 넓혀 미세한 떨림 노이즈 패스
     
     for (let y = 0; y < H; y += step) {
       for (let x = 0; x < W; x += step) {
         if (diff[y * W + x] === 255) {
           let found = false;
           for (let b of blobs) {
-            if (x >= b.x - minSize && x <= b.x + b.w + minSize &&
-                y >= b.y - minSize && y <= b.y + b.h + minSize) {
+            // 성긴 노이즈들이 뭉치지 않게 병합 마진 조절
+            if (x >= b.x - 25 && x <= b.x + b.w + 25 &&
+                y >= b.y - 25 && y <= b.y + b.h + 25) {
               
               let x1 = Math.min(b.x, x);
               let x2 = Math.max(b.x + b.w, x);
@@ -260,13 +257,13 @@
       }
     }
     
-    // [중요 필터링] 가로 세로 80px 미만의 자잘한 노이즈는 완전히 탈락시킴 (사람 크기만 인정)
-    return blobs.filter(b => b.w > 80 && b.h > 80);
+    // 크기 필터를 100px로 올려서 확실한 사람 크기의 덩어리만 통과시킴
+    return blobs.filter(b => b.w > 100 && b.h > 100);
   }
 
   function flashLine(color) {
-    overlay.style.outline = `6px solid ${color}`;
-    setTimeout(() => overlay.style.outline = "none", 350);
+    overlay.style.outline = `8px solid ${color}`;
+    setTimeout(() => overlay.style.outline = "none", 400);
   }
 
   function updateUI() {
@@ -282,9 +279,11 @@
     else                        { badge.className = "badge high";   badge.innerText = "혼잡"; }
   }
 
+  // 강제 초기화 함수
   function resetCount() {
     waitingCount = 0;
     trackedBlobs = [];
+    lastCountTime = 0;
     updateUI();
   }
 </script>
