@@ -3,53 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>엘리베이터 대기 현황 전광판</title>
+  <title>엘리베이터 대기 현황 전광판 (원격)</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: sans-serif;
-      background: #0f172a;
-      color: white;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      padding: 20px;
-    }
+    body { font-family: sans-serif; background: #0f172a; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
     h1 { margin-bottom: 30px; font-size: 28px; letter-spacing: -1px; display: flex; align-items: center; gap: 10px; }
-    .display-container {
-      width: 100%;
-      max-width: 540px;
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-    }
-    .card {
-      background: #1e293b;
-      border-radius: 24px;
-      padding: 40px 20px;
-      text-align: center;
-      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
-      border: 1px solid #334155;
-    }
+    .display-container { width: 100%; max-width: 540px; display: flex; flex-direction: column; gap: 20px; }
+    .card { background: #1e293b; border-radius: 24px; padding: 40px 20px; text-align: center; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3); border: 1px solid #334155; }
     .label { font-size: 18px; color: #94a3b8; font-weight: 500; margin-bottom: 10px; }
     .number-wrap { display: flex; align-items: baseline; justify-content: center; gap: 8px; }
     .number { font-size: 96px; font-weight: 800; color: #38bdf8; line-height: 1; }
     .unit { font-size: 24px; color: #64748b; font-weight: bold; }
-    
-    .badge {
-      display: inline-block;
-      padding: 6px 18px;
-      border-radius: 999px;
-      font-size: 16px;
-      font-weight: bold;
-      margin-top: 20px;
-    }
+    .badge { display: inline-block; padding: 6px 18px; border-radius: 999px; font-size: 16px; font-weight: bold; margin-top: 20px; }
     .badge.low    { background: #14532d; color: #4ade80; }
     .badge.medium { background: #713f12; color: #facc15; }
     .badge.high   { background: #7f1d1d; color: #f87171; }
-    
     #waitTime { color: #f43f5e; }
   </style>
 </head>
@@ -77,32 +45,32 @@
   </div>
 
 <script>
-  // 저장소 변경을 감지하는 메인 함수
-  function syncData() {
-    const currentCount = parseInt(localStorage.getItem("elevator_count")) || 0;
-    const currentWait = localStorage.getItem("elevator_wait") || "0";
+  const SERVER_URL = "https://elevator-counter-default-rtdb.firebaseio.com/seowon.json";
 
-    document.getElementById("count").innerText = currentCount;
-    document.getElementById("waitTime").innerText = currentWait;
+  // 0.5초마다 원격 구글 데이터베이스 서버에서 최신 정보 긁어오기
+  setInterval(() => {
+    fetch(SERVER_URL)
+    .then(res => res.json())
+    .then(data => {
+      if (data) {
+        const currentCount = data.count || 0;
+        const currentWait = data.wait || "0";
 
-    const badge = document.getElementById("badge");
-    if (currentCount === 0) {
-      badge.className = "badge low"; badge.innerText = "여유";
-    } else if (currentCount <= 5) {
-      badge.className = "badge medium"; badge.innerText = "보통";
-    } else {
-      badge.className = "badge high"; badge.innerText = "혼잡";
-    }
-  }
+        document.getElementById("count").innerText = currentCount;
+        document.getElementById("waitTime").innerText = currentWait;
 
-  // [보완] 1. 브라우저 자체 내장 저장소 변경 이벤트 실시간 수신
-  window.addEventListener('storage', syncData);
-
-  // [보완] 2. 이벤트가 안 먹힐 상황을 대비해 0.3초마다 초고속 강제 동기화 루프 작동
-  setInterval(syncData, 300);
-
-  // 처음 접속했을 때도 한 번 실행
-  syncData();
+        const badge = document.getElementById("badge");
+        if (currentCount === 0) {
+          badge.className = "badge low"; badge.innerText = "여유";
+        } else if (currentCount <= 5) {
+          badge.className = "badge medium"; badge.innerText = "보통";
+        } else {
+          badge.className = "badge high"; badge.innerText = "혼잡";
+        }
+      }
+    })
+    .catch(e => console.error("데이터 로딩 실패:", e));
+  }, 500);
 </script>
 </body>
 </html>
