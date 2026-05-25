@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title> 🛗 엘리베이터 대기 현황 </title>
+  <title>엘리베이터 대기 현황 전광판</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -50,7 +50,7 @@
     .badge.medium { background: #713f12; color: #facc15; }
     .badge.high   { background: #7f1d1d; color: #f87171; }
     
-    #waitTime { color: #f43f5e; } /* 대기시간은 강조색상 변경 */
+    #waitTime { color: #f43f5e; }
   </style>
 </head>
 <body>
@@ -77,28 +77,32 @@
   </div>
 
 <script>
-  // 0.5초마다 관리자가 업데이트한 메모리(LocalStorage)를 감시하여 화면 갱신
-  setInterval(() => {
+  // 저장소 변경을 감지하는 메인 함수
+  function syncData() {
     const currentCount = parseInt(localStorage.getItem("elevator_count")) || 0;
     const currentWait = localStorage.getItem("elevator_wait") || "0";
 
-    // 텍스트 반영
     document.getElementById("count").innerText = currentCount;
     document.getElementById("waitTime").innerText = currentWait;
 
-    // 대기 인원 수에 따른 혼잡도 배지 변경
     const badge = document.getElementById("badge");
     if (currentCount === 0) {
-      badge.className = "badge low";
-      badge.innerText = "여유";
+      badge.className = "badge low"; badge.innerText = "여유";
     } else if (currentCount <= 5) {
-      badge.className = "badge medium";
-      badge.innerText = "보통";
+      badge.className = "badge medium"; badge.innerText = "보통";
     } else {
-      badge.className = "badge high";
-      badge.innerText = "혼잡";
+      badge.className = "badge high"; badge.innerText = "혼잡";
     }
-  }, 500);
+  }
+
+  // [보완] 1. 브라우저 자체 내장 저장소 변경 이벤트 실시간 수신
+  window.addEventListener('storage', syncData);
+
+  // [보완] 2. 이벤트가 안 먹힐 상황을 대비해 0.3초마다 초고속 강제 동기화 루프 작동
+  setInterval(syncData, 300);
+
+  // 처음 접속했을 때도 한 번 실행
+  syncData();
 </script>
 </body>
 </html>
