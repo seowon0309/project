@@ -3,93 +3,298 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>엘리베이터 카운터 - 관리자용 </title>
+  <title>엘리베이터 카운터 - 관리자용</title>
   <style>
-    body { font-family: sans-serif; background: #1e293b; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-    .video-wrap { position: relative; width: 100%; max-width: 480px; }
-    video, canvas#overlay { width: 100%; border-radius: 12px; }
-    canvas#overlay { position: absolute; top: 0; left: 0; }
-    canvas#buf { display: none; }
-    .status { font-size: 14px; color: #94a3b8; margin-top: 10px; }
-    .info-box { background: #0f172a; padding: 15px; border-radius: 8px; margin-top: 15px; text-align: center; width: 100%; max-width: 480px; }
-    .btn { margin-top: 12px; padding: 10px 24px; background: #ef4444; color: white; border: none; border-radius: 8px; cursor: pointer; }
+    body {
+      font-family: sans-serif;
+      background: #1e293b;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .video-wrap {
+      position: relative;
+      width: 100%;
+      max-width: 480px;
+    }
+
+    video,
+    canvas#overlay {
+      width: 100%;
+      border-radius: 12px;
+    }
+
+    canvas#overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    canvas#buf {
+      display: none;
+    }
+
+    .status {
+      font-size: 14px;
+      color: #94a3b8;
+      margin-top: 10px;
+    }
+
+    .info-box {
+      background: #0f172a;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 15px;
+      text-align: center;
+      width: 100%;
+      max-width: 480px;
+    }
+
+    .btn {
+      margin-top: 12px;
+      padding: 10px 24px;
+      background: #ef4444;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
   </style>
 </head>
+
 <body>
-  <h2>🛠️ 카운터 관리자 모드 (최종 원격 전송)</h2>
+  <h2>🛠️ 카운터 관리자 모드</h2>
+
   <div class="video-wrap">
     <video id="cam" autoplay playsinline muted></video>
     <canvas id="overlay"></canvas>
   </div>
+
   <canvas id="buf"></canvas>
+
   <div class="status" id="status">네트워크 서버 연결 중...</div>
-  
+
   <div class="info-box">
-    <p>현재 원격 전송 중인 인원: <strong id="admin-count" style="color:#38bdf8">0</strong>명</p>
+    <p>현재 원격 전송 중인 인원:
+      <strong id="admin-count" style="color:#38bdf8">0</strong>명
+    </p>
+    <p>예상 대기 시간:
+      <strong id="admin-wait" style="color:#f43f5e">0.0</strong>분
+    </p>
     <button class="btn" onclick="resetCount()">🔄 인원 초기화</button>
   </div>
 
 <script>
-  const ELEVATOR_CYCLE = 2;
-  const MAX_CAPACITY   = 10;
-  let waitingCount = 0;
-  let prevFrame = null, bgFrame = null, frameCount = 0;
-  let trackedBlobs = [], nextBlobId = 0, lastCountTime = 0, wakeLock = null;
+  /*
+    엘리베이터 조건
+    - 엘리베이터: 총 2대
+    - 한 대당 탑승 가능 인원: 약 8명
+    - 1층 -> 4층 이동 시간: 15초
+    - 4층 -> 1층 이동 시간: 15초
+    - 탑승/하차 여유 시간: 약 30초
 
-  const video = document.getElementById("cam"), overlay = document.getElementById("overlay"), buf = document.getElementById("buf");
-  const octx = overlay.getContext("2d"), bctx = buf.getContext("2d");
+    구현 방식
+    - 사람이 중앙선을 왼쪽에서 오른쪽으로 지나가면 대기인원 +1
+    - 25초마다 엘리베이터 한 대가 도착한다고 보고 대기인원 -8
+    - 예상 대기시간은 현재 대기인원 기준으로 매번 새로 계산
+    - 대기시간은 0.x분 형식으로 표시
+  */
+  const ELEVATOR_COUNT = 2;
+  const CAPACITY_PER_ELEVATOR = 8;
+  const ONE_WAY_SECONDS = 15;
+  const DOOR_SECONDS = 30;
 
-  // 나만의 고유 오픈 주소 채널 생성 (영어와 숫자 조합)
-  const TOPIC_URL = "https://ntfy.sh/seowon0309_elevator_secret_channel";
+  const TOTAL_CAPACITY = ELEVATOR_COUNT * CAPACITY_PER_ELEVATOR;
+  const CYCLE_SECONDS = (ONE_WAY_SECONDS * 2) + DOOR_SECONDS;
+
+  const SINGLE_ELEVATOR_CAPACITY = CAPACITY_PER_ELEVATOR;
+  const SINGLE_ELEVATOR_INTERVAL = CYCLE_SECONDS / ELEVATOR_COUNT;
+
+  function calculateWaitTime(count) {
+    if (count === 0) return "0분";
+
+    if (count <= 8) {
+      return "1분 미만";
+    }
+
+    if (count <= 16) {
+      return "약 1분";
+    }
+
+    if (count <= 32) {
+      return "약 2분";
+    }
+
+    if (count <= 48) {
+      return "약 3분";
+    }
+
+    return "약 4분 이상";
+  }
 
   function sendToServer() {
-    const trips = Math.ceil(waitingCount / MAX_CAPACITY);
-    const wait = waitingCount === 0 ? 0 : (trips * ELEVATOR_CYCLE).toFixed(1);
-    
-    document.getElementById("admin-count").innerText = waitingCount;
+    const wait = calculateWaitTime(waitingCount);
 
-    // [수정] 텍스트 형식("인원수,대기시간")으로 가장 가볍고 확실하게 쏘기
+    document.getElementById("admin-count").innerText = waitingCount;
+    document.getElementById("admin-wait").innerText = wait;
+
     fetch(TOPIC_URL, {
       method: "POST",
       body: `${waitingCount},${wait}`
     }).catch(e => console.error("전송 실패:", e));
   }
 
+  function decreaseByOneElevator() {
+    if (waitingCount > 0) {
+      waitingCount = Math.max(0, waitingCount - SINGLE_ELEVATOR_CAPACITY);
+      sendToServer();
+    }
+  }
+  setInterval(decreaseByOneElevator, SINGLE_ELEVATOR_INTERVAL * 1000);
+  
+  let waitingCount = 0;
+
+  let prevFrame = null;
+  let bgFrame = null;
+  let frameCount = 0;
+
+  let trackedBlobs = [];
+  let nextBlobId = 0;
+  let lastCountTime = 0;
+  let wakeLock = null;
+
+  const video = document.getElementById("cam");
+  const overlay = document.getElementById("overlay");
+  const buf = document.getElementById("buf");
+
+  const octx = overlay.getContext("2d");
+  const bctx = buf.getContext("2d");
+
+  const TOPIC_URL = "https://ntfy.sh/seowon0309_elevator_secret_channel";
+
+  function calculateWaitTime(count) {
+    if (count === 0) return "0.0";
+
+    /*
+      현재 대기인원을 기준으로 예상 대기시간 계산
+
+      엘리베이터 2대가 한 사이클 50초 동안 최대 16명을 처리한다고 가정.
+      따라서 한 사람당 평균 처리 시간은 50초 / 16명 = 약 3.125초.
+    */
+    const secondsPerPerson = CYCLE_SECONDS / TOTAL_CAPACITY;
+    const waitSeconds = count * secondsPerPerson;
+    const waitMinutes = waitSeconds / 60;
+
+    return waitMinutes.toFixed(1);
+  }
+
+  function sendToServer() {
+    const wait = calculateWaitTime(waitingCount);
+
+    document.getElementById("admin-count").innerText = waitingCount;
+    document.getElementById("admin-wait").innerText = wait;
+
+    fetch(TOPIC_URL, {
+      method: "POST",
+      body: `${waitingCount},${wait}`
+    }).catch(e => console.error("전송 실패:", e));
+  }
+
+  function decreaseByOneElevator() {
+    if (waitingCount > 0) {
+      waitingCount = Math.max(0, waitingCount - SINGLE_ELEVATOR_CAPACITY);
+      sendToServer();
+    }
+  }
+
+  // 25초마다 엘리베이터 한 대가 사람을 태워간다고 가정
+  setInterval(decreaseByOneElevator, SINGLE_ELEVATOR_INTERVAL * 1000);
+
   sendToServer();
 
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: 640, height: 480 } })
+  navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: "environment",
+      width: 640,
+      height: 480
+    }
+  })
   .then(stream => {
     video.srcObject = stream;
+
     video.onloadedmetadata = () => {
-      overlay.width = video.videoWidth; overlay.height = video.videoHeight;
-      buf.width = video.videoWidth; buf.height = video.videoHeight;
+      overlay.width = video.videoWidth;
+      overlay.height = video.videoHeight;
+
+      buf.width = video.videoWidth;
+      buf.height = video.videoHeight;
+
       requestWakeLock();
       requestAnimationFrame(processFrame);
     };
-  }).catch(err => { document.getElementById("status").innerText = "❌ 오류: " + err.message; });
+  })
+  .catch(err => {
+    document.getElementById("status").innerText = "❌ 오류: " + err.message;
+  });
 
   async function requestWakeLock() {
-    try { if ('wakeLock' in navigator) { wakeLock = await navigator.wakeLock.request('screen'); document.getElementById("status").innerText = "✅ 원격 감지 중 (화면 켜짐 고정)"; } } catch (err) {}
+    try {
+      if ("wakeLock" in navigator) {
+        wakeLock = await navigator.wakeLock.request("screen");
+        document.getElementById("status").innerText = "✅ 원격 감지 중 (화면 켜짐 고정)";
+      } else {
+        document.getElementById("status").innerText = "✅ 원격 감지 중";
+      }
+    } catch (err) {
+      document.getElementById("status").innerText = "✅ 원격 감지 중";
+    }
   }
 
   function processFrame() {
-    const W = buf.width, H = buf.height, lineX = W / 2;
+    const W = buf.width;
+    const H = buf.height;
+    const lineX = W / 2;
+
     bctx.drawImage(video, 0, 0, W, H);
     const curr = bctx.getImageData(0, 0, W, H);
+
     octx.clearRect(0, 0, W, H);
 
-    octx.strokeStyle = "rgba(56, 189, 248, 0.8)"; octx.lineWidth = 4;
-    octx.beginPath(); octx.moveTo(lineX, 0); octx.lineTo(lineX, H); octx.stroke();
+    // 중앙선 표시
+    octx.strokeStyle = "rgba(56, 189, 248, 0.8)";
+    octx.lineWidth = 4;
+    octx.beginPath();
+    octx.moveTo(lineX, 0);
+    octx.lineTo(lineX, H);
+    octx.stroke();
 
     if (prevFrame) {
       frameCount++;
-      if (!bgFrame || frameCount % 45 === 0) bgFrame = prevFrame;
+
+      // 배경 프레임 주기적 갱신
+      if (!bgFrame || frameCount % 45 === 0) {
+        bgFrame = prevFrame;
+      }
+
       const diff = new Uint8ClampedArray(W * H);
-      const pData = bgFrame.data, cData = curr.data;
-      
+      const pData = bgFrame.data;
+      const cData = curr.data;
+
       for (let i = 0; i < W * H; i++) {
-        if ((Math.abs(cData[i*4]-pData[i*4]) + Math.abs(cData[i*4+1]-pData[i*4+1]) + Math.abs(cData[i*4+2]-pData[i*4+2])) / 3 > 50) diff[i] = 255;
-        else diff[i] = 0;
+        const rDiff = Math.abs(cData[i * 4] - pData[i * 4]);
+        const gDiff = Math.abs(cData[i * 4 + 1] - pData[i * 4 + 1]);
+        const bDiff = Math.abs(cData[i * 4 + 2] - pData[i * 4 + 2]);
+
+        const avgDiff = (rDiff + gDiff + bDiff) / 3;
+
+        if (avgDiff > 50) {
+          diff[i] = 255;
+        } else {
+          diff[i] = 0;
+        }
       }
 
       const currentBlobs = findBlobsStrict(diff, W, H);
@@ -97,57 +302,133 @@
       const now = Date.now();
 
       currentBlobs.forEach(blob => {
-        octx.strokeStyle = "#facc15"; octx.lineWidth = 3; octx.strokeRect(blob.x, blob.y, blob.w, blob.h);
-        let bestMatch = null, minDistance = 80;
-        trackedBlobs.forEach(p => {
-          const dist = Math.hypot(p.cx - blob.cx, p.cy - blob.cy);
-          if (dist < minDistance) { minDistance = dist; bestMatch = p; }
+        // 감지된 영역 표시
+        octx.strokeStyle = "#facc15";
+        octx.lineWidth = 3;
+        octx.strokeRect(blob.x, blob.y, blob.w, blob.h);
+
+        let bestMatch = null;
+        let minDistance = 80;
+
+        trackedBlobs.forEach(previousBlob => {
+          const dist = Math.hypot(
+            previousBlob.cx - blob.cx,
+            previousBlob.cy - blob.cy
+          );
+
+          if (dist < minDistance) {
+            minDistance = dist;
+            bestMatch = previousBlob;
+          }
         });
 
         if (bestMatch) {
-          blob.id = bestMatch.id; blob.startedInLeftZone = bestMatch.startedInLeftZone; blob.isCounted = bestMatch.isCounted;
+          blob.id = bestMatch.id;
+          blob.startedInLeftZone = bestMatch.startedInLeftZone;
+          blob.isCounted = bestMatch.isCounted;
+
           const moveX = blob.cx - bestMatch.cx;
-          if (!blob.isCounted && blob.startedInLeftZone && bestMatch.cx < lineX && blob.cx >= lineX && moveX > 0) {
+
+          // 왼쪽에서 시작한 물체가 중앙선을 오른쪽으로 넘으면 +1
+          if (
+            !blob.isCounted &&
+            blob.startedInLeftZone &&
+            bestMatch.cx < lineX &&
+            blob.cx >= lineX &&
+            moveX > 0
+          ) {
+            // 너무 빠르게 여러 번 카운트되는 것 방지
             if (now - lastCountTime > 1200) {
-              waitingCount++; blob.isCounted = true; lastCountTime = now;
-              flashLine("#34d399"); 
-              sendToServer(); 
+              waitingCount++;
+              blob.isCounted = true;
+              lastCountTime = now;
+
+              flashLine("#34d399");
+              sendToServer();
             }
           }
         } else {
-          blob.id = nextBlobId++; blob.isCounted = false;
-          blob.startedInLeftZone = (blob.cx < lineX - 15);
+          blob.id = nextBlobId++;
+          blob.isCounted = false;
+          blob.startedInLeftZone = blob.cx < lineX - 15;
         }
+
         nextTrackedBlobs.push(blob);
       });
+
       trackedBlobs = nextTrackedBlobs;
     }
+
     prevFrame = curr;
     requestAnimationFrame(processFrame);
   }
 
   function findBlobsStrict(diff, W, H) {
-    const blobs = []; const step = 12;
+    const blobs = [];
+    const step = 12;
+
     for (let y = 0; y < H; y += step) {
       for (let x = 0; x < W; x += step) {
         if (diff[y * W + x] === 255) {
           let found = false;
+
           for (let b of blobs) {
-            if (x >= b.x - 20 && x <= b.x + b.w + 20 && y >= b.y - 20 && y <= b.y + b.h + 20) {
-              let x1 = Math.min(b.x, x), x2 = Math.max(b.x + b.w, x), y1 = Math.min(b.y, y), y2 = Math.max(b.y + b.h, y);
-              b.x = x1; b.y = y1; b.w = x2 - x1; b.h = y2 - y1; b.cx = x1 + b.w / 2; b.cy = y1 + b.h / 2;
-              found = true; break;
+            if (
+              x >= b.x - 20 &&
+              x <= b.x + b.w + 20 &&
+              y >= b.y - 20 &&
+              y <= b.y + b.h + 20
+            ) {
+              const x1 = Math.min(b.x, x);
+              const x2 = Math.max(b.x + b.w, x);
+              const y1 = Math.min(b.y, y);
+              const y2 = Math.max(b.y + b.h, y);
+
+              b.x = x1;
+              b.y = y1;
+              b.w = x2 - x1;
+              b.h = y2 - y1;
+              b.cx = x1 + b.w / 2;
+              b.cy = y1 + b.h / 2;
+
+              found = true;
+              break;
             }
           }
-          if (!found) blobs.push({ x: x, y: y, w: step, h: step, cx: x + step/2, cy: y + step/2 });
+
+          if (!found) {
+            blobs.push({
+              x: x,
+              y: y,
+              w: step,
+              h: step,
+              cx: x + step / 2,
+              cy: y + step / 2
+            });
+          }
         }
       }
     }
+
+    // 너무 작은 움직임은 무시
     return blobs.filter(b => b.w > 110 && b.h > 110);
   }
 
-  function flashLine(color) { overlay.style.outline = `8px solid ${color}`; setTimeout(() => overlay.style.outline = "none", 350); }
-  function resetCount() { waitingCount = 0; trackedBlobs = []; lastCountTime = 0; sendToServer(); }
+  function flashLine(color) {
+    overlay.style.outline = `8px solid ${color}`;
+
+    setTimeout(() => {
+      overlay.style.outline = "none";
+    }, 350);
+  }
+
+  function resetCount() {
+    waitingCount = 0;
+    trackedBlobs = [];
+    lastCountTime = 0;
+    sendToServer();
+  }
 </script>
+
 </body>
 </html>
