@@ -134,13 +134,13 @@
   const TOPIC_URL = "https://ntfy.sh/seowon0309_elevator_secret_channel";
 
   function calculateWaitTime(count) {
-  if (count === 0) return "0.0";
+  if (count === 0) return "0분";
 
-  const secondsPerPerson = SINGLE_ELEVATOR_INTERVAL / SINGLE_ELEVATOR_CAPACITY;
-  const waitSeconds = count * secondsPerPerson;
-  const waitMinutes = waitSeconds / 60;
+  const elevatorTripsNeeded = Math.ceil(count / SINGLE_ELEVATOR_CAPACITY);
+  const waitSeconds = elevatorTripsNeeded * SINGLE_ELEVATOR_INTERVAL;
+  const waitMinutes = Math.ceil(waitSeconds / 60) + 1;
 
-  return waitMinutes.toFixed(1);
+  return `약 ${waitMinutes}분`;
 }
 
   function sendToServer() {
