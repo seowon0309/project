@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>엘리베이터 대기 현황 전광판 </title>
+  <title>엘리베이터 대기 현황 전광판</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #0f172a; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
@@ -38,8 +38,7 @@
     <div class="card">
       <div class="label">예상 대기 시간</div>
       <div class="number-wrap">
-        <span class="number" id="waitTime">0</span>
-        <span class="unit">분</span>
+        <span class="number" id="waitTime">약 0분</span>
       </div>
     </div>
   </div>
@@ -53,16 +52,16 @@
     eventSource.onmessage = (event) => {
       try {
         const rawData = JSON.parse(event.data);
-        // 서버에서 던져준 텍스트 메시지가 존재할 때 처리
         if (rawData && rawData.message) {
-          // [수정] "쉼표"를 기준으로 쪼개서 각각 인원수와 대기시간 매핑
           const parts = rawData.message.split(",");
           if(parts.length === 2) {
             const currentCount = parseInt(parts[0]) || 0;
             const currentWait = parts[1] || "0";
 
             document.getElementById("count").innerText = currentCount;
-            document.getElementById("waitTime").innerText = currentWait;
+            
+            // [수정] 빨간색 글씨 자리에 '약 X분' 형태로 통째로 밀어넣기
+            document.getElementById("waitTime").innerText = "약 " + currentWait + "분";
 
             const badge = document.getElementById("badge");
             if (currentCount === 0) {
