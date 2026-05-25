@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>엘리베이터 대기 현황 </title>
+  <title> 🛗 엘리베이터 대기 현황 </title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -13,304 +13,92 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 20px;
+      justify-content: center;
       min-height: 100vh;
+      padding: 20px;
     }
-    h2 { margin: 16px 0; font-size: 22px; }
-    .video-wrap {
-      position: relative;
+    h1 { margin-bottom: 30px; font-size: 28px; letter-spacing: -1px; display: flex; align-items: center; gap: 10px; }
+    .display-container {
       width: 100%;
-      max-width: 480px;
+      max-width: 540px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
     }
-    video, canvas#overlay {
-      width: 100%;
-      border-radius: 12px;
-    }
-    canvas#overlay {
-      position: absolute;
-      top: 0; left: 0;
-    }
-    canvas#buf { display: none; }
     .card {
       background: #1e293b;
-      border-radius: 16px;
-      padding: 24px;
-      margin: 12px 0;
-      width: 100%;
-      max-width: 480px;
+      border-radius: 24px;
+      padding: 40px 20px;
       text-align: center;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+      border: 1px solid #334155;
     }
-    .number { font-size: 72px; font-weight: bold; color: #38bdf8; line-height: 1; }
-    .label  { font-size: 16px; color: #94a3b8; margin-top: 8px; }
-    .status { font-size: 13px; color: #64748b; margin-top: 16px; }
+    .label { font-size: 18px; color: #94a3b8; font-weight: 500; margin-bottom: 10px; }
+    .number-wrap { display: flex; align-items: baseline; justify-content: center; gap: 8px; }
+    .number { font-size: 96px; font-weight: 800; color: #38bdf8; line-height: 1; }
+    .unit { font-size: 24px; color: #64748b; font-weight: bold; }
+    
     .badge {
       display: inline-block;
-      padding: 4px 12px;
+      padding: 6px 18px;
       border-radius: 999px;
-      font-size: 13px;
-      margin-top: 12px;
-    }
-    .badge.low    { background: #166534; color: #86efac; }
-    .badge.medium { background: #854d0e; color: #fde68a; }
-    .badge.high   { background: #7f1d1d; color: #fca5a5; }
-    .btn {
-      margin-top: 12px;
-      padding: 10px 24px;
-      background: #ef4444;
-      color: white;
-      border: none;
-      border-radius: 8px;
       font-size: 16px;
-      cursor: pointer;
+      font-weight: bold;
+      margin-top: 20px;
     }
+    .badge.low    { background: #14532d; color: #4ade80; }
+    .badge.medium { background: #713f12; color: #facc15; }
+    .badge.high   { background: #7f1d1d; color: #f87171; }
+    
+    #waitTime { color: #f43f5e; } /* 대기시간은 강조색상 변경 */
   </style>
 </head>
 <body>
-  <h2>🛗 엘리베이터 대기 현황 </h2>
 
-  <div class="video-wrap">
-    <video id="cam" autoplay playsinline muted></video>
-    <canvas id="overlay"></canvas>
+  <h1>🛗 엘리베이터 대기 현황</h1>
+
+  <div class="display-container">
+    <div class="card">
+      <div class="label">현재 대기 인원</div>
+      <div class="number-wrap">
+        <span class="number" id="count">0</span>
+        <span class="unit">명</span>
+      </div>
+      <div id="badge" class="badge low">여유</div>
+    </div>
+
+    <div class="card">
+      <div class="label">예상 대기 시간</div>
+      <div class="number-wrap">
+        <span class="number" id="waitTime">0</span>
+        <span class="unit">분</span>
+      </div>
+    </div>
   </div>
-  <canvas id="buf"></canvas>
-
-  <div class="card">
-    <div class="label">현재 대기 인원</div>
-    <div class="number" id="count">0</div>
-    <div class="label">명</div>
-    <div id="badge" class="badge low">여유</div>
-  </div>
-
-  <div class="card">
-    <div class="label">예상 대기시간</div>
-    <div class="number" id="waitTime">0</div>
-    <div class="label">분</div>
-  </div>
-
-  <button class="btn" onclick="resetCount()">🔄 인원 초기화</button>
-  <div class="status" id="status">카메라 시작 중...</div>
 
 <script>
-  const ELEVATOR_CYCLE = 2;
-  const MAX_CAPACITY   = 10;
+  // 0.5초마다 관리자가 업데이트한 메모리(LocalStorage)를 감시하여 화면 갱신
+  setInterval(() => {
+    const currentCount = parseInt(localStorage.getItem("elevator_count")) || 0;
+    const currentWait = localStorage.getItem("elevator_wait") || "0";
 
-  let waitingCount = 0;
-  let prevFrame = null;
-  let bgFrame   = null;
-  let frameCount = 0;
-  
-  let trackedBlobs = []; 
-  let nextBlobId = 0;
-  let lastCountTime = 0;
+    // 텍스트 반영
+    document.getElementById("count").innerText = currentCount;
+    document.getElementById("waitTime").innerText = currentWait;
 
-  // [화면 꺼짐 방지] 전역 변수
-  let wakeLock = null;
-
-  const video   = document.getElementById("cam");
-  const overlay = document.getElementById("overlay");
-  const buf     = document.getElementById("buf");
-  const octx    = overlay.getContext("2d");
-  const bctx    = buf.getContext("2d");
-
-  navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "environment", width: 640, height: 480 }
-  }).then(stream => {
-    video.srcObject = stream;
-    video.onloadedmetadata = () => {
-      overlay.width  = video.videoWidth;
-      overlay.height = video.videoHeight;
-      buf.width      = video.videoWidth;
-      buf.height     = video.videoHeight;
-      document.getElementById("status").innerText = "✅ 화면 꺼짐 방지 활성화 중...";
-      
-      // 카메라가 성공적으로 켜지면 화면 꺼짐 방지 기능 실행
-      requestWakeLock();
-      requestAnimationFrame(processFrame);
-    };
-  }).catch(err => {
-    document.getElementById("status").innerText = "❌ 카메라 오류: " + err.message;
-  });
-
-  // [핵심 함수] 브라우저 화면을 강제로 켜두는 기능
-  async function requestWakeLock() {
-    try {
-      if ('wakeLock' in navigator) {
-        wakeLock = await navigator.wakeLock.request('screen');
-        document.getElementById("status").innerText = "✅ 정밀 감지 중 (화면 잠금 방지 On)";
-        
-        // 홈 화면에 갔다 오거나 탭이 전환되었다가 다시 돌아올 때 재활성화 처리
-        wakeLock.addEventListener('release', () => {
-          console.log('Wake Lock이 해제되었습니다.');
-        });
-      } else {
-        document.getElementById("status").innerText = "✅ 감지 중 (이 브라우저는 화면 고정을 지원하지 않음)";
-      }
-    } catch (err) {
-      console.error(`${err.name}, ${err.message}`);
-    }
-  }
-
-  // 탭이 다시 활성화되면 자동으로 화면 고정을 다시 요청
-  document.addEventListener('visibilitychange', async () => {
-    if (wakeLock !== null && document.visibilityState === 'visible') {
-      await requestWakeLock();
-    }
-  });
-
-  function processFrame() {
-    const W = buf.width;
-    const H = buf.height;
-    const lineX = W / 2;
-
-    bctx.drawImage(video, 0, 0, W, H);
-    const curr = bctx.getImageData(0, 0, W, H);
-    octx.clearRect(0, 0, W, H);
-
-    octx.strokeStyle = "rgba(56, 189, 248, 0.8)";
-    octx.lineWidth   = 4;
-    octx.beginPath();
-    octx.moveTo(lineX, 0);
-    octx.lineTo(lineX, H);
-    octx.stroke();
-
-    if (prevFrame) {
-      frameCount++;
-
-      if (!bgFrame || frameCount % 45 === 0) {
-        bgFrame = prevFrame;
-      }
-     
-      const diff  = new Uint8ClampedArray(W * H);
-      const pData = bgFrame.data;
-      const cData = curr.data;
-      
-      for (let i = 0; i < W * H; i++) {
-        const r = Math.abs(cData[i*4]   - pData[i*4]);
-        const g = Math.abs(cData[i*4+1] - pData[i*4+1]);
-        const b = Math.abs(cData[i*4+2] - pData[i*4+2]);
-        
-        if ((r + g + b) / 3 > 50) {
-          diff[i] = 255;
-        } else {
-          diff[i] = 0;
-        }
-      }
-
-      const currentBlobs = findBlobsStrict(diff, W, H);
-      const nextTrackedBlobs = [];
-      const now = Date.now();
-
-      currentBlobs.forEach(blob => {
-        octx.strokeStyle = "#facc15";
-        octx.lineWidth   = 3;
-        octx.strokeRect(blob.x, blob.y, blob.w, blob.h);
-
-        let bestMatch = null;
-        let minDistance = 80;
-
-        trackedBlobs.forEach(p => {
-          const dist = Math.hypot(p.cx - blob.cx, p.cy - blob.cy);
-          if (dist < minDistance) {
-            minDistance = dist;
-            bestMatch = p;
-          }
-        });
-
-        if (bestMatch) {
-          blob.id = bestMatch.id;
-          blob.startedInLeftZone = bestMatch.startedInLeftZone;
-          blob.isCounted = bestMatch.isCounted;
-
-          const moveX = blob.cx - bestMatch.cx;
-
-          if (!blob.isCounted && blob.startedInLeftZone && bestMatch.cx < lineX && blob.cx >= lineX && moveX > 0) {
-            if (now - lastCountTime > 1200) {
-              waitingCount++;
-              blob.isCounted = true;
-              lastCountTime = now;
-              flashLine("#34d399");
-            }
-          }
-        } else {
-          blob.id = nextBlobId++;
-          blob.isCounted = false;
-          
-          if (blob.cx < lineX - 15) {
-            blob.startedInLeftZone = true;
-          } else {
-            blob.startedInLeftZone = false;
-          }
-        }
-
-        nextTrackedBlobs.push(blob);
-      });
-
-      trackedBlobs = nextTrackedBlobs;
-      updateUI();
-    }
-
-    prevFrame = curr;
-    requestAnimationFrame(processFrame);
-  }
-
-  function findBlobsStrict(diff, W, H) {
-    const blobs = [];
-    const step = 12;
-    
-    for (let y = 0; y < H; y += step) {
-      for (let x = 0; x < W; x += step) {
-        if (diff[y * W + x] === 255) {
-          let found = false;
-          for (let b of blobs) {
-            if (x >= b.x - 20 && x <= b.x + b.w + 20 &&
-                y >= b.y - 20 && y <= b.y + b.h + 20) {
-              
-              let x1 = Math.min(b.x, x);
-              let x2 = Math.max(b.x + b.w, x);
-              let y1 = Math.min(b.y, y);
-              let y2 = Math.max(b.y + b.h, y);
-              
-              b.x = x1; b.y = y1;
-              b.w = x2 - x1; b.h = y2 - y1;
-              b.cx = x1 + b.w / 2;
-              b.cy = y1 + b.h / 2;
-              found = true;
-              break;
-            }
-          }
-          if (!found) {
-            blobs.push({ x: x, y: y, w: step, h: step, cx: x + step/2, cy: y + step/2 });
-          }
-        }
-      }
-    }
-    return blobs.filter(b => b.w > 110 && b.h > 110);
-  }
-
-  function flashLine(color) {
-    overlay.style.outline = `8px solid ${color}`;
-    setTimeout(() => overlay.style.outline = "none", 350);
-  }
-
-  function updateUI() {
-    const trips = Math.ceil(waitingCount / MAX_CAPACITY);
-    const wait  = waitingCount === 0 ? 0 : (trips * ELEVATOR_CYCLE).toFixed(1);
-
-    document.getElementById("count").innerText    = waitingCount;
-    document.getElementById("waitTime").innerText = wait;
-
+    // 대기 인원 수에 따른 혼잡도 배지 변경
     const badge = document.getElementById("badge");
-    if (waitingCount === 0)     { badge.className = "badge low";    badge.innerText = "여유"; }
-    else if (waitingCount <= 5) { badge.className = "badge medium"; badge.innerText = "보통"; }
-    else                        { badge.className = "badge high";   badge.innerText = "혼잡"; }
-  }
-
-  function resetCount() {
-    waitingCount = 0;
-    trackedBlobs = [];
-    lastCountTime = 0;
-    updateUI();
-  }
+    if (currentCount === 0) {
+      badge.className = "badge low";
+      badge.innerText = "여유";
+    } else if (currentCount <= 5) {
+      badge.className = "badge medium";
+      badge.innerText = "보통";
+    } else {
+      badge.className = "badge high";
+      badge.innerText = "혼잡";
+    }
+  }, 500);
 </script>
 </body>
 </html>
