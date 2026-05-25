@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>엘리베이터 카운터 - 관리자용</title>
+  <style>
+    body { font-family: sans-serif; background: #1e293b; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+    .video-wrap { position: relative; width: 100%; max-width: 480px; }
+    video, canvas#overlay { width: 100%; border-radius: 12px; }
+    canvas#overlay { position: absolute; top: 0; left: 0; }
+    canvas#buf { display: none; }
+    .status { font-size: 14px; color: #94a3b8; margin-top: 10px; }
+    .info-box { background: #0f172a; padding: 15px; border-radius: 8px; margin-top: 15px; text-align: center; width: 100%; max-width: 480px; }
+    .btn { margin-top: 12px; padding: 10px 24px; background: #ef4444; color: white; border: none; border-radius: 8px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h2>🛠️ 카운터 관리자 모드 (카메라 화면)</h2>
+  <div class="video-wrap">
+    <video id="cam" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+  </div>
+  <canvas id="buf"></canvas>
+  <div class="status" id="status">카메라 시작 중...</div>
+  
+  <div class="info-box">
+    <p>현재 전송 중인 대기 인원: <strong id="admin-count" style="color:#38bdf8">0</strong>명</p>
+    <button class="btn" onclick="resetCount()">🔄 인원 초기화</button>
+  </div>
+
+<script>
+  const ELEVATOR_CYCLE = 2;
+  const MAX_CAPACITY   = 10;
+  let waitingCount = 0;
+  let prevFrame = null, bgFrame = null, frameCount = 0;
+  let trackedBlobs = [], nextBlobId = 0, lastCountTime = 0, wakeLock = null;
+
+  const video = document.getElementById("cam"), overlay = document.getElementById("overlay"), buf = document.getElementById("buf");
+  const octx = overlay.getContext("2d"), bctx = buf.getContext("2d");
+
+  // 데이터 초기화 전송
+  updateStorage();
+
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: 640, height: 480 } })
+  .then(stream => {
+    video.srcObject = stream;
+    video.onloadedmetadata = () => {
+      overlay.width = video.videoWidth; overlay.height = video.videoHeight;
+      buf.width = video.videoWidth; buf.height = video.videoHeight;
+      requestWakeLock();
+      requestAnimationFrame(processFrame);
+    };
+  }).catch(err => { document.getElementById("status").innerText = "❌ 오류: " + err.message; });
+
+  async function requestWakeLock() {
+    try { if ('wakeLock' in navigator) { wakeLock = await navigator.wakeLock.request('screen'); document.getElementById("status").innerText = "✅ 실시간 분석 중 (화면 켜짐 고정)"; } } catch (err) {}
+  }
+
+  function processFrame() {
+    const W = buf.width, H = buf.height, lineX = W / 2;
+    bctx.drawImage(video, 0, 0, W, H);
+    const curr = bctx.getImageData(0, 0, W, H);
+    octx.clearRect(0, 0, W, H);
+
+    octx.strokeStyle = "rgba(56, 189, 248, 0.8)"; octx.lineWidth = 4;
+    octx.beginPath(); octx.moveTo(lineX, 0); octx.lineTo(lineX, H); octx.stroke();
+
+    if (prevFrame) {
+      frameCount++;
+      if (!bgFrame || frameCount % 45 === 0) bgFrame = prevFrame;
+      const diff = new Uint8ClampedArray(W * H);
+      const pData = bgFrame.data, cData = curr.data;
+      
+      for (let i = 0; i < W * H; i++) {
+        if ((Math.abs(cData[i*4]-pData[i*4]) + Math.abs(cData[i*4+1]-pData[i*4+1]) + Math.abs(cData[i*4+2]-pData[i*4+2])) / 3 > 50) diff[i] = 255;
+        else diff[i] = 0;
+      }
+
+      const currentBlobs = findBlobsStrict(diff, W, H);
+      const nextTrackedBlobs = [];
+      const now = Date.now();
+
+      currentBlobs.forEach(blob => {
+        octx.strokeStyle = "#facc15"; octx.lineWidth = 3; octx.strokeRect(blob.x, blob.y, blob.w, blob.h);
+        let bestMatch = null, minDistance = 80;
+        trackedBlobs.forEach(p => {
+          const dist = Math.hypot(p.cx - blob.cx, p.cy - blob.cy);
+          if (dist < minDistance) { minDistance = dist; bestMatch = p; }
+        });
+
+        if (bestMatch) {
+          blob.id = bestMatch.id; blob.startedInLeftZone = bestMatch.startedInLeftZone; blob.isCounted = bestMatch.isCounted;
+          const moveX = blob.cx - bestMatch.cx;
+          if (!blob.isCounted && blob.startedInLeftZone && bestMatch.cx < lineX && blob.cx >= lineX && moveX > 0) {
+            if (now - lastCountTime > 1200) {
+              waitingCount++; blob.isCounted = true; lastCountTime = now;
+              flashLine("#34d399"); updateStorage();
+            }
+          }
+        } else {
+          blob.id = nextBlobId++; blob.isCounted = false;
+          blob.startedInLeftZone = (blob.cx < lineX - 15);
+        }
+        nextTrackedBlobs.push(blob);
+      });
+      trackedBlobs = nextTrackedBlobs;
+    }
+    prevFrame = curr;
+    requestAnimationFrame(processFrame);
+  }
+
+  function findBlobsStrict(diff, W, H) {
+    const blobs = []; const step = 12;
+    for (let y = 0; y < H; y += step) {
+      for (let x = 0; x < W; x += step) {
+        if (diff[y * W + x] === 255) {
+          let found = false;
+          for (let b of blobs) {
+            if (x >= b.x - 20 && x <= b.x + b.w + 20 && y >= b.y - 20 && y <= b.y + b.h + 20) {
+              let x1 = Math.min(b.x, x), x2 = Math.max(b.x + b.w, x), y1 = Math.min(b.y, y), y2 = Math.max(b.y + b.h, y);
+              b.x = x1; b.y = y1; b.w = x2 - x1; b.h = y2 - y1; b.cx = x1 + b.w / 2; b.cy = y1 + b.h / 2;
+              found = true; break;
+            }
+          }
+          if (!found) blobs.push({ x: x, y: y, w: step, h: step, cx: x + step/2, cy: y + step/2 });
+        }
+      }
+    }
+    return blobs.filter(b => b.w > 110 && b.h > 110);
+  }
+
+  function flashLine(color) { overlay.style.outline = `8px solid ${color}`; setTimeout(() => overlay.style.outline = "none", 350); }
+  
+  // [핵심] 브라우저 저장소에 실시간 데이터 기록하기
+  function updateStorage() {
+    const trips = Math.ceil(waitingCount / MAX_CAPACITY);
+    const wait = waitingCount === 0 ? 0 : (trips * ELEVATOR_CYCLE).toFixed(1);
+    
+    localStorage.setItem("elevator_count", waitingCount);
+    localStorage.setItem("elevator_wait", wait);
+    document.getElementById("admin-count").innerText = waitingCount;
+  }
+
+  function resetCount() { waitingCount = 0; trackedBlobs = []; lastCountTime = 0; updateStorage(); }
+</script>
+</body>
+</html>
