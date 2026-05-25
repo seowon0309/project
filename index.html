@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>엘리베이터 대기 현황 전광판 (초정밀 원격)</title>
+  <title>엘리베이터 대기 현황 전광판 (최종 원격)</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #0f172a; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
@@ -45,47 +45,46 @@
   </div>
 
 <script>
-  // 실시간 스트리밍 서버 주소 연결
-  const STREAM_URL = "https://ntfy.sh/seowon0309_elevator_project/json";
+  const STREAM_URL = "https://ntfy.sh/seowon0309_elevator_secret_channel/sse";
 
   function startListening() {
     const eventSource = new EventSource(STREAM_URL);
 
-    // 구글 서버와 달리 스트리밍 방식으로 실시간 데이터가 꽂힘
     eventSource.onmessage = (event) => {
       try {
         const rawData = JSON.parse(event.data);
+        // 서버에서 던져준 텍스트 메시지가 존재할 때 처리
         if (rawData && rawData.message) {
-          const data = JSON.parse(rawData.message);
-          
-          const currentCount = data.count || 0;
-          const currentWait = data.wait || "0";
+          // [수정] "쉼표"를 기준으로 쪼개서 각각 인원수와 대기시간 매핑
+          const parts = rawData.message.split(",");
+          if(parts.length === 2) {
+            const currentCount = parseInt(parts[0]) || 0;
+            const currentWait = parts[1] || "0";
 
-          document.getElementById("count").innerText = currentCount;
-          document.getElementById("waitTime").innerText = currentWait;
+            document.getElementById("count").innerText = currentCount;
+            document.getElementById("waitTime").innerText = currentWait;
 
-          const badge = document.getElementById("badge");
-          if (currentCount === 0) {
-            badge.className = "badge low"; badge.innerText = "여유";
-          } else if (currentCount <= 5) {
-            badge.className = "badge medium"; badge.innerText = "보통";
-          } else {
-            badge.className = "badge high"; badge.innerText = "혼잡";
+            const badge = document.getElementById("badge");
+            if (currentCount === 0) {
+              badge.className = "badge low"; badge.innerText = "여유";
+            } else if (currentCount <= 5) {
+              badge.className = "badge medium"; badge.innerText = "보통";
+            } else {
+              badge.className = "badge high"; badge.innerText = "혼잡";
+            }
           }
         }
       } catch (e) {
-        // 하트비트 메시지 패스
+        console.error("데이터 매핑 실패:", e);
       }
     };
 
-    // 혹시라도 와이파이가 끊겨서 연결이 끊어지면 자동으로 재접속 시도
     eventSource.onerror = () => {
       eventSource.close();
-      setTimeout(startListening, 2000);
+      setTimeout(startListening, 1500);
     };
   }
 
-  // 스트리밍 리스너 가동
   startListening();
 </script>
 </body>
