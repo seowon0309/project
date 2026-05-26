@@ -5,107 +5,40 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>엘리베이터 카운터 - 관리자용</title>
   <style>
-    body {
-      font-family: sans-serif;
-      background: #1e293b;
-      color: white;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 20px;
-    }
-
-    .video-wrap {
-      position: relative;
-      width: 100%;
-      max-width: 480px;
-    }
-
-    video,
-    canvas#overlay {
-      width: 100%;
-      border-radius: 12px;
-    }
-
-    canvas#overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-    }
-
-    canvas#buf {
-      display: none;
-    }
-
-    .status {
-      font-size: 14px;
-      color: #94a3b8;
-      margin-top: 10px;
-    }
-
-    .info-box {
-      background: #0f172a;
-      padding: 15px;
-      border-radius: 8px;
-      margin-top: 15px;
-      text-align: center;
-      width: 100%;
-      max-width: 480px;
-    }
-
-    .btn {
-      margin-top: 12px;
-      padding: 10px 24px;
-      background: #ef4444;
-      color: white;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-    }
+    body { font-family: sans-serif; background: #1e293b; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+    .video-wrap { position: relative; width: 100%; max-width: 480px; }
+    video, canvas#overlay { width: 100%; border-radius: 12px; }
+    canvas#overlay { position: absolute; top: 0; left: 0; }
+    canvas#buf { display: none; }
+    .status { font-size: 14px; color: #94a3b8; margin-top: 10px; }
+    .info-box { background: #0f172a; padding: 15px; border-radius: 8px; margin-top: 15px; text-align: center; width: 100%; max-width: 480px; }
+    .btn { margin-top: 12px; padding: 10px 24px; background: #ef4444; color: white; border: none; border-radius: 8px; cursor: pointer; }
   </style>
 </head>
-
 <body>
   <h2>🛠️ 카운터 관리자 모드 (초고속 감지)</h2>
-
   <div class="video-wrap">
     <video id="cam" autoplay playsinline muted></video>
     <canvas id="overlay"></canvas>
   </div>
-
   <canvas id="buf"></canvas>
-
   <div class="status" id="status">네트워크 서버 연결 중...</div>
-
   <div class="info-box">
-    <p>현재 원격 전송 중인 인원:
-      <strong id="admin-count" style="color:#38bdf8">0</strong>명
-    </p>
-    <p>예상 대기 시간:
-      <strong id="admin-wait" style="color:#f43f5e">0분</strong>
-    </p>
+    <p>현재 원격 전송 중인 인원: <strong id="admin-count" style="color:#38bdf8">0</strong>명</p>
+    <p>예상 대기 시간: <strong id="admin-wait" style="color:#f43f5e">0분</strong></p>
     <button class="btn" onclick="resetCount()">🔄 인원 초기화</button>
   </div>
 
 <script>
-  // 업데이트하신 고유 변수 세팅값 (정원 8명, 주기 30초)
-  const ELEVATOR_COUNT = 2;
+  // 조원들과 수정한 정원 8명, 주기 30초 규격
   const CAPACITY_PER_ELEVATOR = 8;
-  const ONE_WAY_SECONDS = 15;
-  const DOOR_SECONDS = 15;
-
-  const TOTAL_CAPACITY = ELEVATOR_COUNT * CAPACITY_PER_ELEVATOR;
-  const CYCLE_SECONDS = (ONE_WAY_SECONDS * 2) + DOOR_SECONDS;
-
   const SINGLE_ELEVATOR_CAPACITY = CAPACITY_PER_ELEVATOR;
   const SINGLE_ELEVATOR_INTERVAL = 30;
   
   let waitingCount = 0;
-
   let prevFrame = null;
   let bgFrame = null;
   let frameCount = 0;
-
   let trackedBlobs = [];
   let nextBlobId = 0;
   let lastCountTime = 0;
@@ -114,37 +47,32 @@
   const video = document.getElementById("cam");
   const overlay = document.getElementById("overlay");
   const buf = document.getElementById("buf");
-
   const octx = overlay.getContext("2d");
   const bctx = buf.getContext("2d");
 
+  // 🔒 [통신 채널 주소 완벽 일치] 전광판과 무조건 연결되는 고유 채널
   const TOPIC_URL = "https://ntfy.sh/seowon0309_elevator_secret_channel";
 
-  // 🔄 요청하신 올림 방식 수식
   function calculateWaitTime(count) {
     if (count === 0) return "0분";
-
     const elevatorTripsNeeded = Math.ceil(count / SINGLE_ELEVATOR_CAPACITY);
     const waitSeconds = elevatorTripsNeeded * SINGLE_ELEVATOR_INTERVAL;
     const waitMinutes = Math.ceil(waitSeconds / 60) + 1;
-
     return `약 ${waitMinutes}분`;
   }
 
   function sendToServer() {
     const wait = calculateWaitTime(waitingCount);
-
     document.getElementById("admin-count").innerText = waitingCount;
     document.getElementById("admin-wait").innerText = wait;
 
+    // 데이터가 전광판으로 실시간으로 꽂히도록 강제 포맷팅 전송
     fetch(TOPIC_URL, {
       method: "POST",
-      body: `${waitingCount},${wait}`
+      body: waitingCount + "," + wait
     })
     .then(() => {
-      if (!wakeLock) {
-        document.getElementById("status").innerText = "✅ 원격 서버 연결 성공 (실시간 전송 중)";
-      }
+      if (!wakeLock) document.getElementById("status").innerText = "✅ 원격 서버 연결 성공 (실시간 전송 중)";
     })
     .catch(e => console.error("전송 실패:", e));
   }
@@ -155,218 +83,10 @@
       sendToServer();
     }
   }
-
   setInterval(decreaseByOneElevator, SINGLE_ELEVATOR_INTERVAL * 1000);
 
-  sendToServer();
-
-  // 📷 카메라 연동 영역
-  navigator.mediaDevices.getUserMedia({
-    video: {
-      facingMode: "environment",
-      width: 640,
-      height: 480
-    }
-  })
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: 640, height: 480 } })
   .then(stream => {
     video.srcObject = stream;
-
     video.onloadedmetadata = () => {
-      overlay.width = video.videoWidth;
-      overlay.height = video.videoHeight;
-
-      buf.width = video.videoWidth;
-      buf.height = video.videoHeight;
-
-      requestWakeLock();
-      requestAnimationFrame(processFrame);
-    };
-  })
-  .catch(err => {
-    document.getElementById("status").innerText = "❌ 오류: " + err.message;
-  });
-
-  // 🔒 끊겼던 requestWakeLock 함수 구문 완벽 복구
-  async function requestWakeLock() {
-    try {
-      if ("wakeLock" in navigator) {
-        wakeLock = await navigator.wakeLock.request("screen");
-        document.getElementById("status").innerText = "✅ 원격 감지 중 (화면 켜짐 고정)";
-      } else {
-        document.getElementById("status").innerText = "✅ 원격 감지 중";
-      }
-    } catch (err) {
-      document.getElementById("status").innerText = "✅ 원격 감지 중";
-    }
-  }
-
-  // ⚡ 초고속 모션 감지 알고리즘 영역 복구 및 마감
-  function processFrame() {
-    const W = buf.width;
-    const H = buf.height;
-    const lineX = W / 2;
-
-    bctx.drawImage(video, 0, 0, W, H);
-    const curr = bctx.getImageData(0, 0, W, H);
-
-    octx.clearRect(0, 0, W, H);
-
-    octx.strokeStyle = "rgba(56, 189, 248, 0.8)";
-    octx.lineWidth = 4;
-    octx.beginPath();
-    octx.moveTo(lineX, 0);
-    octx.lineTo(lineX, H);
-    octx.stroke();
-
-    if (prevFrame) {
-      frameCount++;
-
-      if (!bgFrame || frameCount % 20 === 0) {
-        bgFrame = prevFrame;
-      }
-
-      const diff = new Uint8ClampedArray(W * H);
-      const pData = bgFrame.data;
-      const cData = curr.data;
-
-      for (let i = 0; i < W * H; i++) {
-        const rDiff = Math.abs(cData[i * 4] - pData[i * 4]);
-        const gDiff = Math.abs(cData[i * 4 + 1] - pData[i * 4 + 1]);
-        const bDiff = Math.abs(cData[i * 4 + 2] - pData[i * 4 + 2]);
-
-        const avgDiff = (rDiff + gDiff + bDiff) / 3;
-
-        if (avgDiff > 35) {
-          diff[i] = 255;
-        } else {
-          diff[i] = 0;
-        }
-      }
-
-      const currentBlobs = findBlobsStrict(diff, W, H);
-      const nextTrackedBlobs = [];
-      const now = Date.now();
-
-      currentBlobs.forEach(blob => {
-        octx.strokeStyle = "#facc15";
-        octx.lineWidth = 3;
-        octx.strokeRect(blob.x, blob.y, blob.w, blob.h);
-
-        let bestMatch = null;
-        let minDistance = 140; 
-
-        trackedBlobs.forEach(previousBlob => {
-          const dist = Math.hypot(
-            previousBlob.cx - blob.cx,
-            previousBlob.cy - blob.cy
-          );
-
-          if (dist < minDistance) {
-            minDistance = dist;
-            bestMatch = previousBlob;
-          }
-        });
-
-        if (bestMatch) {
-          blob.id = bestMatch.id;
-          blob.startedInLeftZone = bestMatch.startedInLeftZone;
-          blob.isCounted = bestMatch.isCounted;
-
-          const moveX = blob.cx - bestMatch.cx;
-
-          if (
-            !blob.isCounted &&
-            blob.startedInLeftZone &&
-            bestMatch.cx < (lineX + 10) &&
-            blob.cx >= (lineX - 10) &&
-            moveX > 0
-          ) {
-            if (now - lastCountTime > 650) {
-              waitingCount++;
-              blob.isCounted = true;
-              lastCountTime = now;
-
-              flashLine("#34d399");
-              sendToServer();
-            }
-          }
-        } else {
-          blob.id = nextBlobId++;
-          blob.isCounted = false;
-          blob.startedInLeftZone = blob.cx < lineX;
-        }
-
-        nextTrackedBlobs.push(blob);
-      });
-
-      trackedBlobs = nextTrackedBlobs;
-    }
-
-    prevFrame = curr;
-    requestAnimationFrame(processFrame);
-  }
-
-  function findBlobsStrict(diff, W, H) {
-    const blobs = [];
-    const step = 8; 
-
-    for (let y = 0; y < H; y += step) {
-      for (let x = 0; x < W; x += step) {
-        if (diff[y * W + x] === 255) {
-          let found = false;
-
-          for (let b of blobs) {
-            if (
-              x >= b.x - 25 &&
-              x <= b.x + b.w + 25 &&
-              y >= b.y - 25 &&
-              y <= b.y + b.h + 25
-            ) {
-              const x1 = Math.min(b.x, x);
-              const x2 = Math.max(b.x + b.w, x);
-              const y1 = Math.min(b.y, y);
-              const y2 = Math.max(b.y + b.h, y);
-
-              b.x = x1;
-              b.y = y1;
-              b.w = x2 - x1;
-              b.h = y2 - y1;
-              b.cx = x1 + b.w / 2;
-              b.cy = y1 + b.h / 2;
-
-              found = true;
-              break;
-            }
-          }
-
-          if (!found) {
-            blobs.push({
-              x: x,
-              y: y,
-              w: step,
-              h: step,
-              cx: x + step / 2,
-              cy: y + step / 2
-            });
-          }
-        }
-      }
-    }
-
-    return blobs.filter(b => b.w > 60 && b.h > 60);
-  }
-
-  function flashLine(color) {
-    overlay.style.outline = `8px solid ${color}`;
-    setTimeout(() => { overlay.style.outline = "none"; }, 350);
-  }
-
-  function resetCount() {
-    waitingCount = 0;
-    trackedBlobs = [];
-    lastCountTime = 0;
-    sendToServer();
-  }
-</script>
-</body>
-</html>
+      overlay.width = video.videoWidth; overlay.height = video
