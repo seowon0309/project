@@ -47,7 +47,11 @@
         
         if (parts.length === 2) {
           const currentCount = parseInt(parts[0].trim()) || 0;
-          const currentWait = parts[1].trim(); 
+          let currentWait = parts[1].trim(); 
+
+          // '약 약' 이나 '분분'으로 완전히 망가져서 들어오는 글자를 깨끗하게 한 번 더 밀어주는 필터링
+          if (currentWait.includes("약 약")) currentWait = currentWait.replace("약 약", "약");
+          if (currentWait.includes("분분")) currentWait = currentWait.replace("분분", "분");
 
           document.getElementById("count").innerText = currentCount;
           document.getElementById("waitTime").innerText = currentWait;
