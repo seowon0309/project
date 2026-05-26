@@ -30,10 +30,6 @@
   </div>
 
 <script>
-  const CAPACITY_PER_ELEVATOR = 8;
-  const SINGLE_ELEVATOR_CAPACITY = CAPACITY_PER_ELEVATOR;
-  const SINGLE_ELEVATOR_INTERVAL = 30;
-  
   let waitingCount = 0;
   let prevFrame = null;
   let bgFrame = null;
@@ -53,10 +49,10 @@
 
   function calculateWaitTime(count) {
     if (count === 0) return "0분";
-    const elevatorTripsNeeded = Math.ceil(count / SINGLE_ELEVATOR_CAPACITY);
-    const waitSeconds = elevatorTripsNeeded * SINGLE_ELEVATOR_INTERVAL;
+    const elevatorTripsNeeded = Math.ceil(count / 8);
+    const waitSeconds = elevatorTripsNeeded * 30;
     const waitMinutes = Math.ceil(waitSeconds / 60) + 1;
-    return `약 ${waitMinutes}분`;
+    return "약 " + waitMinutes + "분";
   }
 
   function sendToServer() {
@@ -66,21 +62,21 @@
 
     fetch(TOPIC_URL, {
       method: "POST",
-      body: `${waitingCount},${wait}`
+      body: waitingCount + "," + wait
     })
     .then(() => {
-      if (!wakeLock) document.getElementById("status").innerText = "✅ 원격 서버 연결 성공 (실시간 전송 중)";
+      document.getElementById("status").innerText = "✅ 원격 서버 연결 성공 (실시간 전송 중)";
     })
     .catch(e => console.error("전송 실패:", e));
   }
 
   function decreaseByOneElevator() {
     if (waitingCount > 0) {
-      waitingCount = Math.max(0, waitingCount - SINGLE_ELEVATOR_CAPACITY);
+      waitingCount = Math.max(0, waitingCount - 8);
       sendToServer();
     }
   }
-  setInterval(decreaseByOneElevator, SINGLE_ELEVATOR_INTERVAL * 1000);
+  setInterval(decreaseByOneElevator, 30000);
 
   navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: 640, height: 480 } })
   .then(stream => {
@@ -88,15 +84,10 @@
     video.onloadedmetadata = () => {
       overlay.width = video.videoWidth; overlay.height = video.videoHeight;
       buf.width = video.videoWidth; buf.height = video.videoHeight;
-      requestWakeLock();
       requestAnimationFrame(processFrame);
     };
   })
   .catch(err => { document.getElementById("status").innerText = "❌ 오류: " + err.message; });
-
-  async function requestWakeLock() {
-    try { if ("wakeLock" in navigator) { wakeLock = await navigator.wakeLock.request("screen"); } } catch (err) {}
-  }
 
   function processFrame() {
     const W = buf.width; const H = buf.height; const lineX = W / 2;
@@ -158,27 +149,4 @@
             if (x >= b.x - 25 && x <= b.x + b.w + 25 && y >= b.y - 25 && y <= b.y + b.h + 25) {
               const x1 = Math.min(b.x, x); const x2 = Math.max(b.x + b.w, x);
               const y1 = Math.min(b.y, y); const y2 = Math.max(b.y + b.h, y);
-              b.x = x1; b.y = y1; b.w = x2 - x1; b.h = y2 - y1; b.cx = x1 + b.w / 2; b.cy = y1 + b.h / 2;
-              found = true; break;
-            }
-          }
-          if (!found) blobs.push({ x: x, y: y, w: step, h: step, cx: x + step / 2, cy: y + step / 2 });
-        }
-      }
-    }
-    return blobs.filter(b => b.w > 60 && b.h > 60);
-  }
-
-  function flashLine(color) {
-    overlay.style.outline = `8px solid ${color}`;
-    setTimeout(() => { overlay.style.outline = "none"; }, 350);
-  }
-
-  sendToServer();
-
-  function resetCount() {
-    waitingCount = 0; trackedBlobs = []; lastCountTime = 0; sendToServer();
-  }
-</script>
-</body>
-</html>
+              b.x = x1; b.y = y1; b.w = x2 - x1; b.h = y2 - y1; b.cx = x1 + b.w / 2; b.cy = y1 + b.h /
