@@ -77,8 +77,7 @@
   }
   setInterval(decreaseByOneElevator, 30000);
 
-  // 🛠️ 직전 코드에서 오직 { video: { facingMode: "environment" } } 옵션만 안전하게 적용
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+  navigator.mediaDevices.getUserMedia({ video: true })
   .then(stream => {
     video.srcObject = stream;
     video.onloadedmetadata = () => {
@@ -150,3 +149,26 @@
               const x1 = Math.min(b.x, x); const x2 = Math.max(b.x + b.w, x);
               const y1 = Math.min(b.y, y); const y2 = Math.max(b.y + b.h, y);
               b.x = x1; b.y = y1; b.w = x2 - x1; b.h = y2 - y1; b.cx = x1 + b.w / 2; b.cy = y1 + b.h / 2;
+              found = true; break;
+            }
+          }
+          if (!found) blobs.push({ x: x, y: y, w: step, h: step, cx: x + step / 2, cy: y + step / 2 });
+        }
+      }
+    }
+    return blobs.filter(b => b.w > 60 && b.h > 60);
+  }
+
+  function flashLine(color) {
+    overlay.style.outline = `8px solid ${color}`;
+    setTimeout(() => { overlay.style.outline = "none"; }, 350);
+  }
+
+  sendToServer();
+
+  function resetCount() {
+    waitingCount = 0; trackedBlobs = []; lastCountTime = 0; sendToServer();
+  }
+</script>
+</body>
+</html>
