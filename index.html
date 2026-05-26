@@ -66,9 +66,9 @@
 
             // 3. 인원별 혼잡도 배지 변경
             const badge = document.getElementById("badge");
-            if (currentCount === 0) {
+            if (currentCount <=19) {
               badge.className = "badge low"; badge.innerText = "여유";
-            } else if (currentCount <= 5) {
+            } else if (currentCount <= 29) {
               badge.className = "badge medium"; badge.innerText = "보통";
             } else {
               badge.className = "badge high"; badge.innerText = "혼잡";
