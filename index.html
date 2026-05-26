@@ -12,13 +12,13 @@
     .card { background: #1e293b; border-radius: 24px; padding: 40px 20px; text-align: center; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3); border: 1px solid #334155; }
     .label { font-size: 18px; color: #94a3b8; font-weight: 500; margin-bottom: 10px; }
     .number-wrap { display: flex; align-items: baseline; justify-content: center; gap: 8px; }
-    .number { font-size: 96px; font-weight: 800; color: #38bdf8; line-height: 1; }
+    .number { font-size: 80px; font-weight: 800; color: #38bdf8; line-height: 1.1; white-space: nowrap; }
     .unit { font-size: 24px; color: #64748b; font-weight: bold; }
     .badge { display: inline-block; padding: 6px 18px; border-radius: 999px; font-size: 16px; font-weight: bold; margin-top: 20px; }
     .badge.low    { background: #14532d; color: #4ade80; }
     .badge.medium { background: #713f12; color: #facc15; }
     .badge.high   { background: #7f1d1d; color: #f87171; }
-    #waitTime { color: #f43f5e; }
+    #waitTime { color: #f43f5e; font-size: 72px; } /* 모바일에서 글자가 깨지지 않도록 폰트 크기 최적화 */
   </style>
 </head>
 <body>
@@ -58,11 +58,13 @@
             const currentCount = parseInt(parts[0]) || 0;
             const currentWait = parts[1] || "0";
 
+            // 1. 대기 인원 화면에 반영
             document.getElementById("count").innerText = currentCount;
             
-            // [수정] 빨간색 글씨 자리에 '약 X분' 형태로 통째로 밀어넣기
+            // 2. 대기 시간 화면에 반영 (중복 없이 깔끔하게 '약 X분' 형식 지정)
             document.getElementById("waitTime").innerText = "약 " + currentWait + "분";
 
+            // 3. 인원별 혼잡도 배지 변경
             const badge = document.getElementById("badge");
             if (currentCount === 0) {
               badge.className = "badge low"; badge.innerText = "여유";
