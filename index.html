@@ -3,90 +3,116 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>엘리베이터 대기 현황 전광판</title>
+  <title>엘리베이터 대기 현황판</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #0f172a; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
-    h1 { margin-bottom: 30px; font-size: 28px; letter-spacing: -1px; display: flex; align-items: center; gap: 10px; }
-    .display-container { width: 100%; max-width: 540px; display: flex; flex-direction: column; gap: 20px; }
-    .card { background: #1e293b; border-radius: 24px; padding: 40px 20px; text-align: center; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3); border: 1px solid #334155; }
-    .label { font-size: 18px; color: #94a3b8; font-weight: 500; margin-bottom: 10px; }
-    .number-wrap { display: flex; align-items: baseline; justify-content: center; gap: 8px; }
-    .number { font-size: 80px; font-weight: 800; color: #38bdf8; line-height: 1.1; white-space: nowrap; }
-    .unit { font-size: 24px; color: #64748b; font-weight: bold; }
-    .badge { display: inline-block; padding: 6px 18px; border-radius: 999px; font-size: 16px; font-weight: bold; margin-top: 20px; }
-    .badge.low    { background: #14532d; color: #4ade80; }
-    .badge.medium { background: #713f12; color: #facc15; }
-    .badge.high   { background: #7f1d1d; color: #f87171; }
-    #waitTime { color: #f43f5e; font-size: 72px; } /* 모바일에서 글자가 깨지지 않도록 폰트 크기 최적화 */
+    body {
+      font-family: sans-serif;
+      background: #0f172a;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    h1 {
+      font-size: 2.2rem;
+      margin-bottom: 30px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card {
+      background: #1e293b;
+      border-radius: 24px;
+      padding: 35px;
+      text-align: center;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+      width: 100%;
+      max-width: 500px;
+      margin-bottom: 25px;
+    }
+
+    .card-title {
+      font-size: 1.2rem;
+      color: #94a3b8;
+      margin-bottom: 15px;
+    }
+
+    .count-value {
+      font-size: 5.5rem;
+      font-weight: bold;
+      color: #38bdf8;
+      margin: 10px 0;
+    }
+
+    .count-unit {
+      font-size: 1.5rem;
+      color: #64748b;
+      margin-left: 5px;
+    }
+
+    .wait-value {
+      font-size: 4.5rem;
+      font-weight: bold;
+      color: #f43f5e;
+      margin: 10px 0;
+      word-break: keep-all;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 6px 16px;
+      border-radius: 50px;
+      font-size: 1rem;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+
+    .badge.green { background: #059669; color: white; }
+    .badge.yellow { background: #d97706; color: white; }
+    .badge.red { background: #dc2626; color: white; }
   </style>
 </head>
 <body>
 
-  <h1>🛗 엘리베이터 대기 현황</h1>
+  <h1>🏢 엘리베이터 대기 현황</h1>
 
-  <div class="display-container">
-    <div class="card">
-      <div class="label">현재 대기 인원</div>
-      <div class="number-wrap">
-        <span class="number" id="count">0</span>
-        <span class="unit">명</span>
-      </div>
-      <div id="badge" class="badge low">여유</div>
+  <div class="card">
+    <div class="card-title">현재 대기 인원</div>
+    <div class="count-value">
+      <span id="count">0</span><span class="count-unit">명</span>
     </div>
+    <div id="statusBadge" class="badge green">여유</div>
+  </div>
 
-    <div class="card">
-      <div class="label">예상 대기 시간</div>
-      <div class="number-wrap">
-        <span class="number" id="waitTime">약 0분</span>
-      </div>
-    </div>
+  <div class="card">
+    <div class="card-title">예상 대기 시간</div>
+    <div id="waitTime" class="wait-value">0분</div>
   </div>
 
 <script>
-  const STREAM_URL = "https://ntfy.sh/seowon0309_elevator_secret_channel/sse";
+  const TOPIC_URL = "https://ntfy.sh/seowon0309_elevator_secret_channel";
+  
+  // ntfy 실시간 통신 연결
+  const eventSource = new EventSource(`${TOPIC_URL}/sse`);
 
-  function startListening() {
-    const eventSource = new EventSource(STREAM_URL);
+  eventSource.onmessage = (event) => {
+    try {
+      const rawData = JSON.parse(event.data);
+      
+      if (rawData && rawData.message) {
+        // 관리자가 보낸 데이터 파싱 ("인원수,약 X분")
+        const parts = rawData.message.split(",");
+        
+        if (parts.length === 2) {
+          const currentCount = parseInt(parts[0]) || 0;
+          const currentWait = parts[1] || "0분"; // 관리자 페이지가 계산한 "약 X분" 통째로 수신
 
-    eventSource.onmessage = (event) => {
-      try {
-        const rawData = JSON.parse(event.data);
-        if (rawData && rawData.message) {
-          const parts = rawData.message.split(",");
-          if(parts.length === 2) {
-            const currentCount = parseInt(parts[0]) || 0;
-            const currentWait = parts[1] || "0";
-
-            // 1. 대기 인원 화면에 반영
-            document.getElementById("count").innerText = currentCount;
-            
-            // 2. 대기 시간 화면에 반영 (중복 없이 깔끔하게 '약 X분' 형식 지정)
-            document.getElementById("waitTime").innerText = "약 " + currentWait + "분";
-
-            // 3. 인원별 혼잡도 배지 변경
-            const badge = document.getElementById("badge");
-            if (currentCount <=19) {
-              badge.className = "badge low"; badge.innerText = "여유";
-            } else if (currentCount <= 29) {
-              badge.className = "badge medium"; badge.innerText = "보통";
-            } else {
-              badge.className = "badge high"; badge.innerText = "혼잡";
-            }
-          }
-        }
-      } catch (e) {
-        console.error("데이터 매핑 실패:", e);
-      }
-    };
-
-    eventSource.onerror = () => {
-      eventSource.close();
-      setTimeout(startListening, 1500);
-    };
-  }
-
-  startListening();
-</script>
-</body>
-</html>
+          // 1. 대기 인원 화면에 매핑
+          document.getElementById
