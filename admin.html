@@ -88,7 +88,7 @@
   </div>
 
 <script>
-  // 원래 쓰시던 고유 변수 설정 그대로 유지
+  // 업데이트하신 고유 변수 세팅값 (정원 8명, 주기 30초)
   const ELEVATOR_COUNT = 2;
   const CAPACITY_PER_ELEVATOR = 8;
   const ONE_WAY_SECONDS = 15;
@@ -120,7 +120,7 @@
 
   const TOPIC_URL = "https://ntfy.sh/seowon0309_elevator_secret_channel";
 
-  // 🔄 [수정 완료] 요청하신 올림 방식 수식 (에러 없이 완벽 반영)
+  // 🔄 요청하신 올림 방식 수식
   function calculateWaitTime(count) {
     if (count === 0) return "0분";
 
@@ -160,7 +160,7 @@
 
   sendToServer();
 
-  // 📷 [복구 완료] 꼬여있던 연결 순서를 바로잡아 카메라가 무조건 다시 정상 실행됩니다.
+  // 📷 카메라 연동 영역
   navigator.mediaDevices.getUserMedia({
     video: {
       facingMode: "environment",
@@ -186,7 +186,187 @@
     document.getElementById("status").innerText = "❌ 오류: " + err.message;
   });
 
+  // 🔒 끊겼던 requestWakeLock 함수 구문 완벽 복구
   async function requestWakeLock() {
     try {
       if ("wakeLock" in navigator) {
-        wakeLock = await
+        wakeLock = await navigator.wakeLock.request("screen");
+        document.getElementById("status").innerText = "✅ 원격 감지 중 (화면 켜짐 고정)";
+      } else {
+        document.getElementById("status").innerText = "✅ 원격 감지 중";
+      }
+    } catch (err) {
+      document.getElementById("status").innerText = "✅ 원격 감지 중";
+    }
+  }
+
+  // ⚡ 초고속 모션 감지 알고리즘 영역 복구 및 마감
+  function processFrame() {
+    const W = buf.width;
+    const H = buf.height;
+    const lineX = W / 2;
+
+    bctx.drawImage(video, 0, 0, W, H);
+    const curr = bctx.getImageData(0, 0, W, H);
+
+    octx.clearRect(0, 0, W, H);
+
+    octx.strokeStyle = "rgba(56, 189, 248, 0.8)";
+    octx.lineWidth = 4;
+    octx.beginPath();
+    octx.moveTo(lineX, 0);
+    octx.lineTo(lineX, H);
+    octx.stroke();
+
+    if (prevFrame) {
+      frameCount++;
+
+      if (!bgFrame || frameCount % 20 === 0) {
+        bgFrame = prevFrame;
+      }
+
+      const diff = new Uint8ClampedArray(W * H);
+      const pData = bgFrame.data;
+      const cData = curr.data;
+
+      for (let i = 0; i < W * H; i++) {
+        const rDiff = Math.abs(cData[i * 4] - pData[i * 4]);
+        const gDiff = Math.abs(cData[i * 4 + 1] - pData[i * 4 + 1]);
+        const bDiff = Math.abs(cData[i * 4 + 2] - pData[i * 4 + 2]);
+
+        const avgDiff = (rDiff + gDiff + bDiff) / 3;
+
+        if (avgDiff > 35) {
+          diff[i] = 255;
+        } else {
+          diff[i] = 0;
+        }
+      }
+
+      const currentBlobs = findBlobsStrict(diff, W, H);
+      const nextTrackedBlobs = [];
+      const now = Date.now();
+
+      currentBlobs.forEach(blob => {
+        octx.strokeStyle = "#facc15";
+        octx.lineWidth = 3;
+        octx.strokeRect(blob.x, blob.y, blob.w, blob.h);
+
+        let bestMatch = null;
+        let minDistance = 140; 
+
+        trackedBlobs.forEach(previousBlob => {
+          const dist = Math.hypot(
+            previousBlob.cx - blob.cx,
+            previousBlob.cy - blob.cy
+          );
+
+          if (dist < minDistance) {
+            minDistance = dist;
+            bestMatch = previousBlob;
+          }
+        });
+
+        if (bestMatch) {
+          blob.id = bestMatch.id;
+          blob.startedInLeftZone = bestMatch.startedInLeftZone;
+          blob.isCounted = bestMatch.isCounted;
+
+          const moveX = blob.cx - bestMatch.cx;
+
+          if (
+            !blob.isCounted &&
+            blob.startedInLeftZone &&
+            bestMatch.cx < (lineX + 10) &&
+            blob.cx >= (lineX - 10) &&
+            moveX > 0
+          ) {
+            if (now - lastCountTime > 650) {
+              waitingCount++;
+              blob.isCounted = true;
+              lastCountTime = now;
+
+              flashLine("#34d399");
+              sendToServer();
+            }
+          }
+        } else {
+          blob.id = nextBlobId++;
+          blob.isCounted = false;
+          blob.startedInLeftZone = blob.cx < lineX;
+        }
+
+        nextTrackedBlobs.push(blob);
+      });
+
+      trackedBlobs = nextTrackedBlobs;
+    }
+
+    prevFrame = curr;
+    requestAnimationFrame(processFrame);
+  }
+
+  function findBlobsStrict(diff, W, H) {
+    const blobs = [];
+    const step = 8; 
+
+    for (let y = 0; y < H; y += step) {
+      for (let x = 0; x < W; x += step) {
+        if (diff[y * W + x] === 255) {
+          let found = false;
+
+          for (let b of blobs) {
+            if (
+              x >= b.x - 25 &&
+              x <= b.x + b.w + 25 &&
+              y >= b.y - 25 &&
+              y <= b.y + b.h + 25
+            ) {
+              const x1 = Math.min(b.x, x);
+              const x2 = Math.max(b.x + b.w, x);
+              const y1 = Math.min(b.y, y);
+              const y2 = Math.max(b.y + b.h, y);
+
+              b.x = x1;
+              b.y = y1;
+              b.w = x2 - x1;
+              b.h = y2 - y1;
+              b.cx = x1 + b.w / 2;
+              b.cy = y1 + b.h / 2;
+
+              found = true;
+              break;
+            }
+          }
+
+          if (!found) {
+            blobs.push({
+              x: x,
+              y: y,
+              w: step,
+              h: step,
+              cx: x + step / 2,
+              cy: y + step / 2
+            });
+          }
+        }
+      }
+    }
+
+    return blobs.filter(b => b.w > 60 && b.h > 60);
+  }
+
+  function flashLine(color) {
+    overlay.style.outline = `8px solid ${color}`;
+    setTimeout(() => { overlay.style.outline = "none"; }, 350);
+  }
+
+  function resetCount() {
+    waitingCount = 0;
+    trackedBlobs = [];
+    lastCountTime = 0;
+    sendToServer();
+  }
+</script>
+</body>
+</html>
