@@ -77,7 +77,14 @@
   }
   setInterval(decreaseByOneElevator, 30000);
 
-  navigator.mediaDevices.getUserMedia({ video: true })
+  // 🛠️ 모바일 브라우저 표준에 맞춘 가장 안전한 후면 카메라 강제 지정 코드
+  const constraints = {
+    video: {
+      facingMode: { ideal: "environment" } // 후면 카메라를 강력하게 요구함
+    }
+  };
+
+  navigator.mediaDevices.getUserMedia(constraints)
   .then(stream => {
     video.srcObject = stream;
     video.onloadedmetadata = () => {
@@ -86,7 +93,16 @@
       requestAnimationFrame(processFrame);
     };
   })
-  .catch(err => { document.getElementById("status").innerText = "❌ 오류: " + err.message; });
+  .catch(err => { 
+    // 만약 에러가 나면 일반 카메라라도 켜지도록 방어막 탑재
+    navigator.mediaDevices.getUserMedia({ video: true })
+    .then(stream => {
+      video.srcObject = stream;
+    })
+    .catch(e => {
+      document.getElementById("status").innerText = "❌ 오류: " + e.message; 
+    });
+  });
 
   function processFrame() {
     const W = buf.width; const H = buf.height; const lineX = W / 2;
