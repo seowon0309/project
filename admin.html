@@ -71,4 +71,82 @@
 
   function decreaseByOneElevator() {
     if (waitingCount > 0) {
-      waiting
+      waitingCount = Math.max(0, waitingCount - 8);
+      sendToServer();
+    }
+  }
+  setInterval(decreaseByOneElevator, 30000);
+
+  // 🛠️ 직전 코드에서 오직 { video: { facingMode: "environment" } } 옵션만 안전하게 적용
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+  .then(stream => {
+    video.srcObject = stream;
+    video.onloadedmetadata = () => {
+      overlay.width = video.videoWidth; overlay.height = video.videoHeight;
+      buf.width = video.videoWidth; buf.height = video.videoHeight;
+      requestAnimationFrame(processFrame);
+    };
+  })
+  .catch(err => { document.getElementById("status").innerText = "❌ 오류: " + err.message; });
+
+  function processFrame() {
+    const W = buf.width; const H = buf.height; const lineX = W / 2;
+    bctx.drawImage(video, 0, 0, W, H);
+    const curr = bctx.getImageData(0, 0, W, H);
+    octx.clearRect(0, 0, W, H);
+    octx.strokeStyle = "rgba(56, 189, 248, 0.8)"; octx.lineWidth = 4;
+    octx.beginPath(); octx.moveTo(lineX, 0); octx.lineTo(lineX, H); octx.stroke();
+
+    if (prevFrame) {
+      frameCount++;
+      if (!bgFrame || frameCount % 20 === 0) bgFrame = prevFrame;
+      const diff = new Uint8ClampedArray(W * H);
+      const pData = bgFrame.data; const cData = curr.data;
+
+      for (let i = 0; i < W * H; i++) {
+        const avgDiff = (Math.abs(cData[i*4] - pData[i*4]) + Math.abs(cData[i*4+1] - pData[i*4+1]) + Math.abs(cData[i*4+2] - pData[i*4+2])) / 3;
+        diff[i] = avgDiff > 35 ? 255 : 0;
+      }
+
+      const currentBlobs = findBlobsStrict(diff, W, H);
+      const nextTrackedBlobs = []; const now = Date.now();
+
+      currentBlobs.forEach(blob => {
+        octx.strokeStyle = "#facc15"; octx.lineWidth = 3; octx.strokeRect(blob.x, blob.y, blob.w, blob.h);
+        let bestMatch = null; let minDistance = 140;
+
+        trackedBlobs.forEach(previousBlob => {
+          const dist = Math.hypot(previousBlob.cx - blob.cx, previousBlob.cy - blob.cy);
+          if (dist < minDistance) { minDistance = dist; bestMatch = previousBlob; }
+        });
+
+        if (bestMatch) {
+          blob.id = bestMatch.id; blob.startedInLeftZone = bestMatch.startedInLeftZone; blob.isCounted = bestMatch.isCounted;
+          const moveX = blob.cx - bestMatch.cx;
+          if (!blob.isCounted && blob.startedInLeftZone && bestMatch.cx < (lineX + 10) && blob.cx >= (lineX - 10) && moveX > 0) {
+            if (now - lastCountTime > 650) {
+              waitingCount++; blob.isCounted = true; lastCountTime = now;
+              flashLine("#34d399"); sendToServer();
+            }
+          }
+        } else {
+          blob.id = nextBlobId++; blob.isCounted = false; blob.startedInLeftZone = blob.cx < lineX;
+        }
+        nextTrackedBlobs.push(blob);
+      });
+      trackedBlobs = nextTrackedBlobs;
+    }
+    prevFrame = curr; requestAnimationFrame(processFrame);
+  }
+
+  function findBlobsStrict(diff, W, H) {
+    const blobs = []; const step = 8;
+    for (let y = 0; y < H; y += step) {
+      for (let x = 0; x < W; x += step) {
+        if (diff[y * W + x] === 255) {
+          let found = false;
+          for (let b of blobs) {
+            if (x >= b.x - 25 && x <= b.x + b.w + 25 && y >= b.y - 25 && y <= b.y + b.h + 25) {
+              const x1 = Math.min(b.x, x); const x2 = Math.max(b.x + b.w, x);
+              const y1 = Math.min(b.y, y); const y2 = Math.max(b.y + b.h, y);
+              b.x = x1; b.y = y1; b.w = x2 - x1; b.h = y2 - y1; b.cx = x1 + b.w / 2; b.cy = y1 + b.h / 2;
