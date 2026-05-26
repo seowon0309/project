@@ -30,7 +30,8 @@
   </div>
 
 <script>
-  const SINGLE_ELEVATOR_CAPACITY = 8;
+  const CAPACITY_PER_ELEVATOR = 8;
+  const SINGLE_ELEVATOR_CAPACITY = CAPACITY_PER_ELEVATOR;
   const SINGLE_ELEVATOR_INTERVAL = 30;
   
   let waitingCount = 0;
@@ -52,20 +53,20 @@
 
   function calculateWaitTime(count) {
     if (count === 0) return "0분";
-    const tripsNeeded = Math.ceil(count / SINGLE_ELEVATOR_CAPACITY);
-    const totalSeconds = tripsNeeded * SINGLE_ELEVATOR_INTERVAL;
-    const finalMinutes = Math.ceil(totalSeconds / 60) + 1;
-    return `약 ${finalMinutes}분`;
+    const elevatorTripsNeeded = Math.ceil(count / SINGLE_ELEVATOR_CAPACITY);
+    const waitSeconds = elevatorTripsNeeded * SINGLE_ELEVATOR_INTERVAL;
+    const waitMinutes = Math.ceil(waitSeconds / 60) + 1;
+    return `약 ${waitMinutes}분`;
   }
 
   function sendToServer() {
+    const wait = calculateWaitTime(waitingCount);
     document.getElementById("admin-count").innerText = waitingCount;
-    document.getElementById("admin-wait").innerText = calculateWaitTime(waitingCount);
+    document.getElementById("admin-wait").innerText = wait;
 
-    // 🚀 복잡한 문자열 없이 오직 '순수 숫자'만 서버로 심플하게 전송
     fetch(TOPIC_URL, {
       method: "POST",
-      body: waitingCount.toString()
+      body: `${waitingCount},${wait}`
     })
     .then(() => {
       if (!wakeLock) document.getElementById("status").innerText = "✅ 원격 서버 연결 성공 (실시간 전송 중)";
