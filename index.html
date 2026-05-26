@@ -5,75 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>엘리베이터 대기 현황판</title>
   <style>
-    body {
-      font-family: sans-serif;
-      background: #0f172a;
-      color: white;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      margin: 0;
-      padding: 20px;
-      box-sizing: border-box;
-    }
-
-    h1 {
-      font-size: 2.2rem;
-      margin-bottom: 30px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .card {
-      background: #1e293b;
-      border-radius: 24px;
-      padding: 35px;
-      text-align: center;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-      width: 100%;
-      max-width: 500px;
-      margin-bottom: 25px;
-    }
-
-    .card-title {
-      font-size: 1.2rem;
-      color: #94a3b8;
-      margin-bottom: 15px;
-    }
-
-    .count-value {
-      font-size: 5.5rem;
-      font-weight: bold;
-      color: #38bdf8;
-      margin: 10px 0;
-    }
-
-    .count-unit {
-      font-size: 1.5rem;
-      color: #64748b;
-      margin-left: 5px;
-    }
-
-    .wait-value {
-      font-size: 4.5rem;
-      font-weight: bold;
-      color: #f43f5e;
-      margin: 10px 0;
-      word-break: keep-all;
-    }
-
-    .badge {
-      display: inline-block;
-      padding: 6px 16px;
-      border-radius: 50px;
-      font-size: 1rem;
-      font-weight: bold;
-      margin-top: 10px;
-    }
-
+    body { font-family: sans-serif; background: #0f172a; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+    h1 { font-size: 2.2rem; margin-bottom: 30px; display: flex; align-items: center; gap: 10px; }
+    .card { background: #1e293b; border-radius: 24px; padding: 35px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.3); width: 100%; max-width: 500px; margin-bottom: 25px; }
+    .card-title { font-size: 1.2rem; color: #94a3b8; margin-bottom: 15px; }
+    .count-value { font-size: 5.5rem; font-weight: bold; color: #38bdf8; margin: 10px 0; }
+    .count-unit { font-size: 1.5rem; color: #64748b; margin-left: 5px; }
+    .wait-value { font-size: 4.5rem; font-weight: bold; color: #f43f5e; margin: 10px 0; word-break: keep-all; }
+    .badge { display: inline-block; padding: 6px 16px; border-radius: 50px; font-size: 1rem; font-weight: bold; margin-top: 10px; }
     .badge.green { background: #059669; color: white; }
     .badge.yellow { background: #d97706; color: white; }
     .badge.red { background: #dc2626; color: white; }
@@ -98,21 +37,48 @@
 
 <script>
   const TOPIC_URL = "https://ntfy.sh/seowon0309_elevator_secret_channel";
-  
-  // ntfy 실시간 통신 연결
   const eventSource = new EventSource(`${TOPIC_URL}/sse`);
+
+  // 전광판 자체에서 안전하게 대기 시간을 한 번 더 계산하는 방어 코드 추가 (정원 8명, 주기 30초)
+  function fallbackCalculate(count) {
+    if (count === 0) return "0분";
+    const trips = Math.ceil(count / 8);
+    const seconds = trips * 30;
+    const minutes = Math.ceil(seconds / 60) + 1;
+    return `약 ${minutes}분`;
+  }
 
   eventSource.onmessage = (event) => {
     try {
       const rawData = JSON.parse(event.data);
-      
       if (rawData && rawData.message) {
-        // 관리자가 보낸 데이터 파싱 ("인원수,약 X분")
-        const parts = rawData.message.split(",");
+        const msg = rawData.message.trim();
+        const parts = msg.split(",");
         
-        if (parts.length === 2) {
-          const currentCount = parseInt(parts[0]) || 0;
-          const currentWait = parts[1] || "0분"; // 관리자 페이지가 계산한 "약 X분" 통째로 수신
+        let currentCount = 0;
+        let currentWait = "0분";
 
-          // 1. 대기 인원 화면에 매핑
-          document.getElementById
+        // 데이터 포맷에 맞춰 유연하게 파싱 (어떤 데이터가 들어와도 뻗지 않음)
+        if (parts.length === 2) {
+          currentCount = parseInt(parts[0].trim()) || 0;
+          currentWait = parts[1].trim();
+        } else {
+          // 만약 숫지만 달랑 들어왔을 경우를 대비한 방어 로직
+          currentCount = parseInt(msg) || 0;
+          currentWait = fallbackCalculate(currentCount);
+        }
+
+        // 🛠️ 중복 필터링: 관리자용에서 혹시나 '약 약' 형태로 넘겨주더라도 잡아주는 최종 안전장치
+        if (currentWait.includes("약 약")) currentWait = currentWait.replace("약 약", "약");
+        if (currentWait.includes("분분")) currentWait = currentWait.replace("분분", "분");
+
+        // 화면 갱신
+        document.getElementById("count").innerText = currentCount;
+        document.getElementById("waitTime").innerText = currentWait;
+
+        // 배지 갱신
+        const badge = document.getElementById("statusBadge");
+        if (currentCount <= 5) {
+          badge.innerText = "여유"; badge.className = "badge green";
+        } else if (currentCount <= 12) {
+          badge.innerText = "보통"; badge.className = "badge yellow";
