@@ -39,15 +39,37 @@
   const TOPIC_URL = "https://ntfy.sh/seowon0309_elevator_secret_channel";
   const eventSource = new EventSource(`${TOPIC_URL}/sse`);
 
-  // 서원님의 정확한 대기 시간 올림 수식 (정원 8명, 주기 30초)
-  function calculateWaitTime(count) {
-    if (count === 0) return "0분";
-    const tripsNeeded = Math.ceil(count / 8);       // 엘리베이터 운행 횟수 (올림)
-    const totalSeconds = tripsNeeded * 30;           // 총 대기 시간(초)
-    const finalMinutes = Math.ceil(totalSeconds / 60) + 1; // 분 단위 올림 후 + 1분 여유시간
-    return `약 ${finalMinutes}분`;
-  }
-
   eventSource.onmessage = (event) => {
     try {
-      const rawData =
+      const rawData = JSON.parse(event.data);
+      if (rawData && rawData.message) {
+        const parts = rawData.message.split(",");
+        
+        if (parts.length === 2) {
+          const currentCount = parseInt(parts[0].trim()) || 0;
+          const currentWait = parts[1].trim(); 
+
+          document.getElementById("count").innerText = currentCount;
+          document.getElementById("waitTime").innerText = currentWait;
+
+          const badge = document.getElementById("statusBadge");
+          if (currentCount <= 5) {
+            badge.innerText = "여유"; badge.className = "badge green";
+          } else if (currentCount <= 12) {
+            badge.innerText = "보통"; badge.className = "badge yellow";
+          } else {
+            badge.innerText = "혼잡"; badge.className = "badge red";
+          }
+        }
+      }
+    } catch (error) {
+      console.error("데이터 수신 오류:", error);
+    }
+  };
+
+  eventSource.onerror = (error) => {
+    console.error("서버 연결 실패, 재연결 중...", error);
+  };
+</script>
+</body>
+</html>
