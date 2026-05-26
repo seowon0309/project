@@ -119,7 +119,7 @@
 
   const TOPIC_URL = "https://ntfy.sh/seowon0309_elevator_secret_channel";
 
-  // 🔄 보냈던 코드 방식과 완벽하게 일치하도록 반영
+  // 🔄 직접 작성하셨던 대기 시간 계산 공식을 한 글자도 틀림없이 그대로 매핑
   function calculateWaitTime(count) {
     if (count === 0) return "0분";
 
@@ -136,7 +136,7 @@
     document.getElementById("admin-count").innerText = waitingCount;
     document.getElementById("admin-wait").innerText = wait;
 
-    // 기존 방식 그대로, 계산된 전체 문자열을 ntfy 서버로 전송합니다.
+    // ntfy 서버로 인원수와 대기시간 문자열을 전송
     fetch(TOPIC_URL, {
       method: "POST",
       body: `${waitingCount},${wait}`
@@ -149,17 +149,19 @@
     .catch(e => console.error("전송 실패:", e));
   }
 
+  // 50초마다 7명씩 자동 감소하는 타이머
   function decreaseByOneElevator() {
     if (waitingCount > 0) {
       waitingCount = Math.max(0, waitingCount - SINGLE_ELEVATOR_CAPACITY);
       sendToServer();
     }
   }
-
   setInterval(decreaseByOneElevator, SINGLE_ELEVATOR_INTERVAL * 1000);
 
+  // 초기 상태 전송
   sendToServer();
 
+  // 카메라 실행 영역
   navigator.mediaDevices.getUserMedia({
     video: {
       facingMode: "environment",
@@ -179,6 +181,3 @@
 
       requestWakeLock();
       requestAnimationFrame(processFrame);
-    };
-  })
-  .catch(err =>
